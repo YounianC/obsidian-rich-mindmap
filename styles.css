@@ -272,3 +272,19 @@
   font-variant-numeric: tabular-nums;
   text-align: center;
 }
+
+/* ---------- 选择与编辑 ---------- */
+
+.mindmap-view:focus,
+.mindmap-view:focus-visible {
+  outline: none;
+}
+
+.mm-text.mm-editing {
+  min-width: 2ch;
+  padding: 0 2px;
+  background: var(--background-primary);
+  border-radius: 3px;
+  outline: 2px solid var(--interactive-accent);
+  cursor: text;
+}

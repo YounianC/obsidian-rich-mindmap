@@ -7,6 +7,17 @@ import {
 } from "./model/collapse-state";
 import { parse } from "./model/parser";
 import { serialize } from "./model/serializer";
+import {
+  addChild,
+  addSibling,
+  findNode,
+  navigate,
+  removeNode,
+  setMarks,
+  setText,
+  toggleCollapse,
+} from "./model/tree-ops";
+import { parseMarks } from "./model/marks";
 import type { MindDoc } from "./model/types";
 import {
   cssTransform,
@@ -18,6 +29,11 @@ import {
 } from "./view/camera";
 import { createControls } from "./view/controls";
 import { clear, el } from "./view/dom";
+import {
+  attachInteractions,
+  startInlineEdit,
+  type Intent,
+} from "./view/interaction";
 import type { LayoutResult } from "./view/layout";
 import { createLayers, renderMindmap, type RenderLayers } from "./view/renderer";
 
@@ -42,6 +58,9 @@ export class MindmapView extends TextFileView {
    *  置位后由 `resizeObserver` 在视口获得非零尺寸时补一次 `fitToView()`。 */
   private needsFit = false;
   private resizeObserver: ResizeObserver | null = null;
+  private editingId: string | null = null;
+  /** 新增节点后自动进入编辑的目标 */
+  private pendingEditId: string | null = null;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -108,6 +127,11 @@ export class MindmapView extends TextFileView {
     this.layers = null;
     this.lastLayout = null;
     this.selectedId = null;
+    // 未提交的就地编辑属于旧文档的瞬时状态：底层 DOM 节点即将被下面的 clear(this.root)
+    // 销毁，若不重置这两个字段，新文档会继承一个再也不存在的 editingId，
+    // isEditing() 永远为真，导致新文档的选择/键盘交互全部失效。
+    this.editingId = null;
+    this.pendingEditId = null;
     // `this.root` 本身不会被重建（见 attachCameraEvents 的 eventsAttached 守卫），
     // 但控件与相机状态属于「当前文档」的展示状态，文件切换后必须重置，否则新文档
     // 会继承上一份文档的缩放/平移，且 controls 会指向已被 clear(this.root) 移除的
@@ -135,7 +159,8 @@ export class MindmapView extends TextFileView {
   /** 更新内存文档、重绘、防抖写回文件。 */
   applyDoc(next: MindDoc): void {
     this.doc = next;
-    this.render();
+    // 编辑期间不重绘：render() 会重建 DOM 节点，销毁正在编辑的 contenteditable。
+    if (this.editingId === null) this.render();
     this.scheduleSave();
   }
 
@@ -193,17 +218,131 @@ export class MindmapView extends TextFileView {
       });
       if (!this.eventsAttached) {
         this.attachCameraEvents();
+        this.attachInteractionLayer();
         this.eventsAttached = true;
       }
     }
     this.lastLayout = renderMindmap(this.layers, this.doc.root, this.selectedId);
     this.applyCamera();
+    this.refreshSelectionClasses();
+    if (this.pendingEditId !== null) {
+      const id = this.pendingEditId;
+      this.pendingEditId = null;
+      this.beginEdit(id);
+    }
   }
 
   private applyCamera(): void {
     if (this.layers === null) return;
     this.layers.canvas.style.transform = cssTransform(this.camera);
     this.controls?.setScale(this.camera.scale);
+  }
+
+  private attachInteractionLayer(): void {
+    attachInteractions({
+      root: this.root,
+      on: (type, handler) => this.registerDomEvent(this.root, type, handler),
+      dispatch: (intent) => this.handleIntent(intent),
+      selectedId: () => this.selectedId,
+      isEditing: () => this.editingId !== null,
+    });
+  }
+
+  private handleIntent(intent: Intent): void {
+    if (this.doc === null) return;
+    const doc = this.doc;
+
+    switch (intent.kind) {
+      case "select":
+        this.setSelection(intent.id);
+        return;
+
+      case "beginEdit":
+        this.beginEdit(intent.id);
+        return;
+
+      case "cancelEdit":
+        this.editingId = null;
+        this.render();
+        return;
+
+      case "commitText": {
+        this.editingId = null;
+        const { marks, rest } = parseMarks(intent.text);
+        const target = findNode(doc.root, intent.id);
+        const merged = { ...(target?.marks ?? {}), ...marks };
+        let root = setText(doc.root, intent.id, rest);
+        root = setMarks(root, intent.id, merged);
+        this.applyDoc({ ...doc, root });
+        return;
+      }
+
+      case "addChild": {
+        const { root, newId } = addChild(doc.root, intent.id);
+        this.selectedId = newId;
+        this.pendingEditId = newId;
+        this.applyDoc({ ...doc, root });
+        return;
+      }
+
+      case "addSibling": {
+        const { root, newId } = addSibling(doc.root, intent.id);
+        this.selectedId = newId;
+        this.pendingEditId = newId;
+        this.applyDoc({ ...doc, root });
+        return;
+      }
+
+      case "remove": {
+        const { root, nextSelectionId } = removeNode(doc.root, intent.id);
+        this.selectedId = nextSelectionId;
+        this.applyDoc({ ...doc, root });
+        return;
+      }
+
+      case "toggleCollapse":
+        this.applyDoc({ ...doc, root: toggleCollapse(doc.root, intent.id) });
+        return;
+
+      case "navigate": {
+        const next = navigate(doc.root, intent.id, intent.dir);
+        if (next !== null) this.setSelection(next);
+        return;
+      }
+    }
+  }
+
+  private setSelection(id: string | null): void {
+    if (this.selectedId === id) return;
+    this.selectedId = id;
+    this.refreshSelectionClasses();
+  }
+
+  /** 只切类名，避免为选中变化做整图重排。 */
+  private refreshSelectionClasses(): void {
+    if (this.layers === null) return;
+    for (const element of Array.from(
+      this.layers.nodes.querySelectorAll<HTMLElement>(".mm-node"),
+    )) {
+      element.toggleClass("mm-selected", element.dataset.id === this.selectedId);
+    }
+  }
+
+  private beginEdit(id: string): void {
+    if (this.doc === null || this.layers === null) return;
+    const node = findNode(this.doc.root, id);
+    const element = this.layers.nodes.querySelector<HTMLElement>(
+      `.mm-node[data-id="${id}"]`,
+    );
+    if (node === null || element === null) return;
+
+    this.editingId = id;
+    startInlineEdit(
+      element,
+      node.text,
+      (text) => this.handleIntent({ kind: "commitText", id, text }),
+      () => this.handleIntent({ kind: "cancelEdit" }),
+    );
   }
 
   private zoom(factor: number): void {
