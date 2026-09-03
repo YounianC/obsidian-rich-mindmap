@@ -138,6 +138,16 @@ export function startInlineEdit(
   };
 
   function onKeyDown(event: KeyboardEvent): void {
+    // 带修饰键：让事件原样冒泡出去，不 preventDefault/stopPropagation。这类按键
+    // 组合（如 Cmd/Ctrl+Enter、Cmd/Ctrl+Escape）可能绑定了 Obsidian 自己的全局
+    // 快捷键，Obsidian 的命令/快捷键管理器监听在 document/window 上；一旦在这里
+    // stopPropagation，事件永远到不了那里。必须与 attachInteractions 里
+    // host.root 的 keydown 处理器上那条同款守卫（`event.metaKey || event.ctrlKey
+    // || event.altKey`）保持同步，不要让两处的判断条件走散。注意不要把 shiftKey
+    // 并进这个守卫：Shift+Enter 需要继续走下面 `!event.shiftKey` 的分支，落到
+    // contenteditable 默认的换行行为。
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       // 必须在 finish() 之前调用：finish() 会同步触发 commitText，后者可能
