@@ -3912,6 +3912,7 @@ export function attachInteractions(host: InteractionHost): void {
   });
 
   host.on("dblclick", (event: MouseEvent) => {
+    if (host.isEditing()) return;
     const id = nodeIdFrom(event.target);
     if (id === null) return;
     event.preventDefault();
@@ -4004,13 +4005,20 @@ export function startInlineEdit(
   };
 
   function onKeyDown(event: KeyboardEvent): void {
+    // 必须 stopPropagation：本监听器挂在 .mm-text（事件目标）上，而画布的
+    // keydown 挂在 this.root（祖先）上且是冒泡阶段。按规范目标阶段先于冒泡阶段，
+    // 且传播路径在派发时就已固定 —— 即使 finish() 触发重渲染把元素摘掉，
+    // 同一个事件仍会继续冒泡到 root。届时 isEditing() 已变 false，
+    // root 的处理器会把这次 Enter 再当成「加兄弟节点」、把 Escape 再当成「取消选中」。
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
+      event.stopPropagation();
       finish(true);
       return;
     }
     if (event.key === "Escape") {
       event.preventDefault();
+      event.stopPropagation();
       finish(false);
     }
   }
@@ -4095,6 +4103,12 @@ import {
 
       case "commitText": {
         this.editingId = null;
+        // 根节点是纯文本编辑：H1 行没有行内标记语法，setMarks 对根是 no-op，
+        // 若在这里剥离标记前缀，那几个字符就会在 text 和 marks 里同时消失。
+        if (intent.id === doc.root.id) {
+          this.applyDoc({ ...doc, root: setText(doc.root, intent.id, intent.text) });
+          return;
+        }
         const { marks, rest } = parseMarks(intent.text);
         const target = findNode(doc.root, intent.id);
         const merged = { ...(target?.marks ?? {}), ...marks };
