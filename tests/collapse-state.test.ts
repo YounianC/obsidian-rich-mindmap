@@ -262,3 +262,41 @@ describe("frontmatter key boundary detection (保存非拥有键)", () => {
     expect(result).toBe("名字: 张三\ntitle: x");
   });
 });
+
+describe("frontmatter blank lines inside owned key block", () => {
+  it("块内单个空行不终止块（块序列中的空行）", () => {
+    const fm = 'mindmap-collapsed:\n  - "a"\n\n  - "b"\ntitle: x';
+    const result = writeCollapsed(fm, ["new"]);
+    // 应该只有一个项目 "new"，没有孤立的 "- b"
+    expect(result).toBe('mindmap-collapsed:\n  - "new"\ntitle: x');
+  });
+
+  it("块内多个空行不终止块", () => {
+    const fm = 'mindmap-collapsed:\n  - "a"\n\n\n  - "b"\ntitle: x';
+    const result = writeCollapsed(fm, ["new"]);
+    expect(result).toBe('mindmap-collapsed:\n  - "new"\ntitle: x');
+  });
+
+  it("readCollapsed 正确读取块内有空行的数据", () => {
+    const fm = 'mindmap-collapsed:\n  - "a"\n\n  - "b"\ntitle: x';
+    expect(readCollapsed(fm)).toEqual(["a", "b"]);
+  });
+
+  it("块内空行且拥有键是最后一个键时不终止块", () => {
+    const fm = 'title: x\nmindmap-collapsed:\n  - "a"\n\n  - "b"';
+    const result = writeCollapsed(fm, ["new"]);
+    expect(result).toBe('title: x\nmindmap-collapsed:\n  - "new"');
+  });
+
+  it("空行之后的下一个键正确终止块", () => {
+    const fm = 'mindmap-collapsed:\n  - "old"\n\ntitle: x';
+    const result = writeCollapsed(fm, ["new"]);
+    // 空行后面紧接着 title，所以空行应该保留在两键之间
+    expect(result).toBe('mindmap-collapsed:\n  - "new"\n\ntitle: x');
+  });
+
+  it("readCollapsed 正确停止在空行之后的顶层键", () => {
+    const fm = 'mindmap-collapsed:\n  - "old"\n\ntitle: x';
+    expect(readCollapsed(fm)).toEqual(["old"]);
+  });
+});
