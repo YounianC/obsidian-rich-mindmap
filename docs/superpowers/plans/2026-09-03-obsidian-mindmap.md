@@ -1469,7 +1469,23 @@ function findKeyRange(
     if (match === null || match[1] !== key) continue;
 
     let end = i + 1;
-    while (end < lines.length && /^[ \t]/.test(lines[end])) end++;
+    while (end < lines.length) {
+      if (/^[ \t]/.test(lines[end])) {
+        end++;
+        continue;
+      }
+      if (lines[end].trim() === "") {
+        // 空行只有在其后仍有缩进行时才属于本块（YAML 块序列容许内部空行）；
+        // 若空行之后是另一个顶层键，则空行属于键之间的间隔，必须保留。
+        let j = end + 1;
+        while (j < lines.length && lines[j].trim() === "") j++;
+        if (j < lines.length && /^[ \t]/.test(lines[j])) {
+          end = j;
+          continue;
+        }
+      }
+      break;
+    }
     return { start: i, end };
   }
   return null;
