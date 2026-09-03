@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 // Node 20 没有 fs.globSync，手工枚举纯函数层文件。
 const PURE_DIRS = ["src/model"];
-const PURE_FILES = ["src/view/layout.ts"];
+const PURE_FILES = ["src/view/layout.ts", "src/view/camera.ts"];
 
 const FORBIDDEN = [
   { re: /from\s+["']obsidian["']/, why: "import obsidian" },
