@@ -4005,6 +4005,13 @@ export function startInlineEdit(
   };
 
   function onKeyDown(event: KeyboardEvent): void {
+    // 带修饰键的 Enter / Escape 直接放行：stopPropagation 会对所有祖先生效，
+    // 包括 Obsidian 全局热键管理器所在的 document。这条守卫与 root 处理器里
+    // 那条同样的守卫必须保持一致，否则编辑节点时 Cmd/Ctrl+Enter 会被吞掉。
+    // 不含 shiftKey —— Shift+Enter 仍走下面的 !event.shiftKey 分支，
+    // 落到 contenteditable 的原生换行行为。
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+
     // 必须 stopPropagation：本监听器挂在 .mm-text（事件目标）上，而画布的
     // keydown 挂在 this.root（祖先）上且是冒泡阶段。按规范目标阶段先于冒泡阶段，
     // 且传播路径在派发时就已固定 —— 即使 finish() 触发重渲染把元素摘掉，
