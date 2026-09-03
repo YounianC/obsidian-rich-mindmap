@@ -26,6 +26,9 @@ export function serialize(doc: MindDoc): string {
   let out = "";
   if (doc.frontmatter !== null) out += `---\n${doc.frontmatter}\n---\n`;
   out += doc.preamble;
+  // 根节点的 marks 有意不写回：H1 标题行没有承载行内标记语法的位置，标记是
+  // 列表项的概念。tree-ops 负责保证 root.marks 永远不会被设置；这里不做兜底
+  // 判断，纯粹依赖上游不变量，因此绝不能给 H1 拼接 formatMarks(doc.root.marks)。
   if (doc.hasHeading) out += `# ${doc.root.text}\n`;
   out += doc.headingGap;
   out += serializeNodes(doc.root.children, 0);

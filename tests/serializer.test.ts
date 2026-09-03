@@ -42,4 +42,12 @@ describe("serialize", () => {
     const md = "# t\n\n- a\n  续行内容\n- b\n";
     expect(serialize(parse(md, "x.md"))).toBe(md);
   });
+
+  it("根节点的 marks 不参与序列化：H1 行没有标记语法的位置", () => {
+    const doc = parse("# t\n\n- a\n", "x.md");
+    // 正常路径下 parser 永远不会给 root 设置 marks；这里手工构造以锁定意图——
+    // 即便未来有代码不慎往 root.marks 写入内容，H1 行也绝不能出现标记组。
+    doc.root.marks = { priority: 3, progress: 50, flag: "red" };
+    expect(serialize(doc)).toBe("# t\n\n- a\n");
+  });
 });
