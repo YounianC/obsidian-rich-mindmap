@@ -1,0 +1,9 @@
+{
+  "id": "obsidian-mindmap",
+  "name": "思维导图",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "把 Markdown 缩进列表渲染成可编辑的思维导图，原始数据始终是普通 Markdown。",
+  "author": "younian",
+  "isDesktopOnly": false
+}

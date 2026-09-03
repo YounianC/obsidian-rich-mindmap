@@ -1,0 +1,31 @@
+.mindmap-view {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+  background: var(--background-primary);
+
+  --mm-branch-1: #8b5cf6;
+  --mm-branch-2: #3b82f6;
+  --mm-branch-3: #06b6d4;
+  --mm-branch-4: #10b981;
+  --mm-branch-5: #f59e0b;
+  --mm-branch-6: #ef4444;
+  --mm-branch-7: #ec4899;
+
+  --mm-h-gap: 56px;
+  --mm-v-gap: 14px;
+}
+
+.mindmap-canvas {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+}
+
+.mindmap-edges {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
