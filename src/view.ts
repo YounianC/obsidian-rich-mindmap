@@ -18,7 +18,7 @@ import {
   toggleCollapse,
 } from "./model/tree-ops";
 import { parseMarks } from "./model/marks";
-import type { MindDoc } from "./model/types";
+import type { MindDoc, MindNode } from "./model/types";
 import {
   cssTransform,
   fit,
@@ -61,6 +61,10 @@ export class MindmapView extends TextFileView {
   private editingId: string | null = null;
   /** 新增节点后自动进入编辑的目标 */
   private pendingEditId: string | null = null;
+  /** Tab/Enter 刚创建、还没被提交过的节点 id；用于 Esc 取消编辑时撤销这次新建，
+   *  避免留下一个空文本的节点被写进文件。一旦该节点被成功提交过一次文字（无论是
+   *  否为空文本），就不再是「刚创建」的候选，见 commitText 分支。 */
+  private freshNodeId: string | null = null;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -132,6 +136,7 @@ export class MindmapView extends TextFileView {
     // isEditing() 永远为真，导致新文档的选择/键盘交互全部失效。
     this.editingId = null;
     this.pendingEditId = null;
+    this.freshNodeId = null;
     // `this.root` 本身不会被重建（见 attachCameraEvents 的 eventsAttached 守卫），
     // 但控件与相机状态属于「当前文档」的展示状态，文件切换后必须重置，否则新文档
     // 会继承上一份文档的缩放/平移，且 controls 会指向已被 clear(this.root) 移除的
@@ -149,6 +154,14 @@ export class MindmapView extends TextFileView {
    * 用新文档的内容错误地保存到旧文件。
    */
   override async onUnloadFile(file: TFile): Promise<void> {
+    if (this.editingId !== null) {
+      // 编辑到一半就切换文件：不能让用户已经敲的文字被静默丢弃。blur() 会同步
+      // 触发 startInlineEdit 里已经挂好的 onBlur -> finish(true) -> commitText，
+      // 把编辑框里的当前文字当作一次正常提交写回内存文档；下面紧接着的 flush
+      // 逻辑会把这次提交触发的防抖保存一并冲掉，复用同一条保存管线，不需要
+      // 额外的状态机。
+      this.root.querySelector<HTMLElement>(".mm-text.mm-editing")?.blur();
+    }
     if (this.saveTimer !== null) {
       this.clearSaveTimer();
       await this.save();
@@ -261,18 +274,54 @@ export class MindmapView extends TextFileView {
         this.beginEdit(intent.id);
         return;
 
-      case "cancelEdit":
+      case "cancelEdit": {
+        const cancelledId = this.editingId;
         this.editingId = null;
+
+        // Tab/Enter 新建的节点从未被提交过：如果取消编辑时它还是空文本、没有
+        // 子节点、也没有标记，视为「用户反悔了这次新建」，直接撤销，避免留下一个
+        // 空 `- ` 列表项被写进真实文件。任何真实内容（文字/子节点/标记）都不撤销，
+        // 只在确认「完全空」时才移除，防止误删用户其实已经填过内容又清空的节点。
+        if (cancelledId !== null && cancelledId === this.freshNodeId) {
+          const node = findNode(doc.root, cancelledId);
+          const isEmpty =
+            node !== null &&
+            node.text === "" &&
+            node.children.length === 0 &&
+            Object.keys(node.marks).length === 0;
+          if (isEmpty) {
+            this.freshNodeId = null;
+            const { root, nextSelectionId } = removeNode(doc.root, cancelledId);
+            this.selectedId = nextSelectionId;
+            this.applyDoc({ ...doc, root });
+            return;
+          }
+        }
+
         this.render();
         return;
+      }
 
       case "commitText": {
         this.editingId = null;
-        const { marks, rest } = parseMarks(intent.text);
-        const target = findNode(doc.root, intent.id);
-        const merged = { ...(target?.marks ?? {}), ...marks };
-        let root = setText(doc.root, intent.id, rest);
-        root = setMarks(root, intent.id, merged);
+        // 任何一次成功提交都意味着用户已经确认了这次编辑的结果（哪怕文字仍是空的），
+        // 「Esc 撤销刚新建的空节点」这条兜底逻辑此后不应该再对任何节点生效。
+        this.freshNodeId = null;
+
+        let root: MindNode;
+        if (intent.id === doc.root.id) {
+          // 根节点（H1 标题行）没有标记语法：setMarks/toggleMark 在 tree-ops
+          // 里对根 id 是有意的 no-op。如果这里仍然跑 parseMarks，会把用户敲进
+          // 标题里的 "(p1) " 之类前缀解析成 marks 再丢弃（setMarks 对根不生效），
+          // 造成文字被静默吞掉。根节点编辑当纯文本处理，不解析标记。
+          root = setText(doc.root, intent.id, intent.text);
+        } else {
+          const { marks, rest } = parseMarks(intent.text);
+          const target = findNode(doc.root, intent.id);
+          const merged = { ...(target?.marks ?? {}), ...marks };
+          root = setText(doc.root, intent.id, rest);
+          root = setMarks(root, intent.id, merged);
+        }
         this.applyDoc({ ...doc, root });
         return;
       }
@@ -281,6 +330,7 @@ export class MindmapView extends TextFileView {
         const { root, newId } = addChild(doc.root, intent.id);
         this.selectedId = newId;
         this.pendingEditId = newId;
+        this.freshNodeId = newId;
         this.applyDoc({ ...doc, root });
         return;
       }
@@ -289,6 +339,7 @@ export class MindmapView extends TextFileView {
         const { root, newId } = addSibling(doc.root, intent.id);
         this.selectedId = newId;
         this.pendingEditId = newId;
+        this.freshNodeId = newId;
         this.applyDoc({ ...doc, root });
         return;
       }

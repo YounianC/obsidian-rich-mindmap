@@ -45,6 +45,7 @@ export function attachInteractions(host: InteractionHost): void {
   });
 
   host.on("dblclick", (event: MouseEvent) => {
+    if (host.isEditing()) return;
     const id = nodeIdFrom(event.target);
     if (id === null) return;
     event.preventDefault();
@@ -139,11 +140,18 @@ export function startInlineEdit(
   function onKeyDown(event: KeyboardEvent): void {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
+      // 必须在 finish() 之前调用：finish() 会同步触发 commitText，后者可能
+      // 把 editingId 置空并重新渲染。若不在此处stop，同一个 Enter 事件冒泡到
+      // host.root 上的 keydown 监听器时会读到 isEditing() === false，从而
+      // 被当成「未编辑态」的 Enter 再次处理，多插入一个兄弟节点。
+      event.stopPropagation();
       finish(true);
       return;
     }
     if (event.key === "Escape") {
       event.preventDefault();
+      // 同上：避免 Esc 取消编辑后，同一个事件冒泡到画布触发「取消选中」。
+      event.stopPropagation();
       finish(false);
     }
   }
