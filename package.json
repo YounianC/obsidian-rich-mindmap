@@ -16,9 +16,9 @@
   "license": "ISC",
   "description": "Obsidian 本地思维导图",
   "type": "module",
-  "private": "true",
+  "private": true,
   "devDependencies": {
-    "@types/node": "^26.4.1",
+    "@types/node": "^20.19.43",
     "builtin-modules": "^5.3.0",
     "esbuild": "^0.28.2",
     "fast-check": "^4.9.0",
