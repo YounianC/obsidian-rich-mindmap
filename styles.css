@@ -1,3 +1,5 @@
+/* ---------- 容器与图层 ---------- */
+
 .mindmap-view {
   position: relative;
   overflow: hidden;
@@ -13,28 +15,209 @@
   --mm-branch-6: #ef4444;
   --mm-branch-7: #ec4899;
 
-  --mm-h-gap: 56px;
-  --mm-v-gap: 14px;
+  --mm-p1: #ef4444;
+  --mm-p2: #f97316;
+  --mm-p3: #eab308;
+  --mm-p-rest: #9ca3af;
+
+  --mm-flag-red: #ef4444;
+  --mm-flag-orange: #f97316;
+  --mm-flag-yellow: #eab308;
+  --mm-flag-green: #22c55e;
+  --mm-flag-blue: #3b82f6;
+  --mm-flag-purple: #a855f7;
+  --mm-flag-gray: #9ca3af;
 }
 
 .mindmap-canvas {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
   transform-origin: 0 0;
 }
 
 .mindmap-edges {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
   overflow: visible;
   pointer-events: none;
 }
 
-.mindmap-debug {
-  margin: 0;
-  padding: 16px;
-  font-family: var(--font-monospace);
-  font-size: 13px;
-  color: var(--text-normal);
-  white-space: pre;
+.mindmap-nodes {
+  position: absolute;
+  top: 0;
+  left: 0;
 }
+
+/* 测量容器：脱离视觉但保留真实排版度量 */
+.mindmap-measure {
+  position: absolute;
+  top: 0;
+  left: -99999px;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* ---------- 连线 ---------- */
+
+.mm-edge {
+  fill: none;
+  stroke-linecap: round;
+  opacity: 0.85;
+}
+
+.mm-edge.mm-branch-1 { stroke: var(--mm-branch-1); }
+.mm-edge.mm-branch-2 { stroke: var(--mm-branch-2); }
+.mm-edge.mm-branch-3 { stroke: var(--mm-branch-3); }
+.mm-edge.mm-branch-4 { stroke: var(--mm-branch-4); }
+.mm-edge.mm-branch-5 { stroke: var(--mm-branch-5); }
+.mm-edge.mm-branch-6 { stroke: var(--mm-branch-6); }
+.mm-edge.mm-branch-7 { stroke: var(--mm-branch-7); }
+
+/* ---------- 节点 ---------- */
+
+.mm-node {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  max-width: 360px;
+  padding: 2px 4px 4px;
+  color: var(--text-normal);
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: normal;
+  overflow-wrap: break-word;
+  cursor: default;
+  border-radius: 4px;
+  transition: background-color 120ms ease;
+}
+
+.mm-node:hover {
+  background: var(--background-modifier-hover);
+}
+
+/* 非根节点的下划线，颜色随分支 */
+.mm-node:not(.mm-root) {
+  border-bottom: 2px solid var(--mm-line, var(--text-faint));
+}
+
+.mm-node.mm-branch-1 { --mm-line: var(--mm-branch-1); }
+.mm-node.mm-branch-2 { --mm-line: var(--mm-branch-2); }
+.mm-node.mm-branch-3 { --mm-line: var(--mm-branch-3); }
+.mm-node.mm-branch-4 { --mm-line: var(--mm-branch-4); }
+.mm-node.mm-branch-5 { --mm-line: var(--mm-branch-5); }
+.mm-node.mm-branch-6 { --mm-line: var(--mm-branch-6); }
+.mm-node.mm-branch-7 { --mm-line: var(--mm-branch-7); }
+
+.mm-node.mm-depth-1 { font-size: 16px; font-weight: 600; }
+.mm-node.mm-depth-2 { font-size: 15px; }
+.mm-node.mm-depth-3 { font-size: 14px; }
+
+.mm-node.mm-root {
+  padding: 8px 14px;
+  font-size: 18px;
+  font-weight: 600;
+  background: var(--background-modifier-hover);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+}
+
+.mm-node.mm-selected {
+  background: var(--background-modifier-hover);
+  box-shadow: 0 0 0 2px var(--interactive-accent);
+}
+
+.mm-text {
+  min-width: 1px;
+}
+
+.mm-collapse-badge {
+  flex: 0 0 auto;
+  min-width: 18px;
+  padding: 0 5px;
+  color: var(--text-on-accent);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+  background: var(--mm-line, var(--text-muted));
+  border-radius: 9px;
+}
+
+/* ---------- 标记 ---------- */
+
+.mm-marks {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 4px;
+  align-items: center;
+}
+
+.mm-mark {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+}
+
+.mm-priority {
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  border-radius: 50%;
+}
+
+.mm-priority-1 { background: var(--mm-p1); }
+.mm-priority-2 { background: var(--mm-p2); }
+.mm-priority-3 { background: var(--mm-p3); }
+.mm-priority-4,
+.mm-priority-5,
+.mm-priority-6,
+.mm-priority-7 { background: var(--mm-p-rest); }
+
+.mm-progress-svg,
+.mm-flag-svg {
+  width: 18px;
+  height: 18px;
+}
+
+.mm-progress-ring {
+  fill: none;
+  stroke: #22c55e;
+  stroke-width: 1.5;
+}
+
+.mm-progress-wedge {
+  fill: #22c55e;
+  stroke: none;
+}
+
+.mm-progress-check,
+.mm-progress-hands {
+  fill: none;
+  stroke: #22c55e;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mm-flag-glyph {
+  fill: none;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mm-flag-red   .mm-flag-glyph { stroke: var(--mm-flag-red); }
+.mm-flag-orange .mm-flag-glyph { stroke: var(--mm-flag-orange); }
+.mm-flag-yellow .mm-flag-glyph { stroke: var(--mm-flag-yellow); }
+.mm-flag-green  .mm-flag-glyph { stroke: var(--mm-flag-green); }
+.mm-flag-blue   .mm-flag-glyph { stroke: var(--mm-flag-blue); }
+.mm-flag-purple .mm-flag-glyph { stroke: var(--mm-flag-purple); }
+.mm-flag-gray   .mm-flag-glyph { stroke: var(--mm-flag-gray); }

@@ -9,6 +9,8 @@ import { parse } from "./model/parser";
 import { serialize } from "./model/serializer";
 import type { MindDoc } from "./model/types";
 import { clear, el } from "./view/dom";
+import type { LayoutResult } from "./view/layout";
+import { createLayers, renderMindmap, type RenderLayers } from "./view/renderer";
 
 export const MINDMAP_VIEW_TYPE = "mindmap-view";
 
@@ -18,6 +20,9 @@ export class MindmapView extends TextFileView {
   private doc: MindDoc | null = null;
   private readonly root: HTMLElement;
   private saveTimer: number | null = null;
+  private layers: RenderLayers | null = null;
+  private lastLayout: LayoutResult | null = null;
+  private selectedId: string | null = null;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -64,6 +69,9 @@ export class MindmapView extends TextFileView {
   override clear(): void {
     this.clearSaveTimer();
     this.doc = null;
+    this.layers = null;
+    this.lastLayout = null;
+    this.selectedId = null;
     clear(this.root);
   }
 
@@ -119,18 +127,21 @@ export class MindmapView extends TextFileView {
     await super.onClose();
   }
 
-  /** Task 9 会用真实渲染替换这里的临时文本输出。 */
-  private render(): void {
-    clear(this.root);
-    if (this.doc === null) return;
+  /** 当前布局结果，供 Task 10 起的交互层使用。 */
+  getLayout(): LayoutResult | null {
+    return this.lastLayout;
+  }
 
-    const pre = el("pre", "mindmap-debug", this.root);
-    const lines: string[] = [];
-    const walk = (node: MindDoc["root"], depth: number): void => {
-      lines.push(`${"  ".repeat(depth)}${node.id} ${node.text}`);
-      if (!node.collapsed) node.children.forEach((c) => walk(c, depth + 1));
-    };
-    walk(this.doc.root, 0);
-    pre.textContent = lines.join("\n");
+  private render(): void {
+    if (this.doc === null) {
+      if (this.layers !== null) clear(this.root);
+      this.layers = null;
+      return;
+    }
+    if (this.layers === null) {
+      clear(this.root);
+      this.layers = createLayers(this.root);
+    }
+    this.lastLayout = renderMindmap(this.layers, this.doc.root, this.selectedId);
   }
 }
