@@ -29,7 +29,9 @@ export function createControls(
   host: HTMLElement,
   handlers: ControlsHandlers,
 ): { setScale(scale: number): void } {
-  const bar = el("div", "mm-controls", host);
+  // mm-no-pan：画布上「界面元素」的通用标记（见 view.ts 的 attachCameraEvents）。
+  // 之后新增的工具栏/面板/弹出框只需带上这个类，就不会触发画布平移。
+  const bar = el("div", "mm-controls mm-no-pan", host);
 
   iconButton(bar, "maximize", "适应窗口", handlers.onFit);
   iconButton(bar, "minus", "缩小", handlers.onZoomOut);

@@ -35,6 +35,13 @@ export class MindmapView extends TextFileView {
   private camera: Camera = IDENTITY;
   private controls: { setScale(scale: number): void } | null = null;
   private panOrigin: { x: number; y: number } | null = null;
+  /** `attachCameraEvents()` 只应在 `this.root` 上挂载一次；`this.root` 在构造后不会被替换，
+   *  但 `render()` 可能在同一实例上因 `clear()` 多次重新进入创建分支。 */
+  private eventsAttached = false;
+  /** 首次渲染时视口可能尚未完成布局（尺寸为 0），此时 `fitToView()` 会是无操作。
+   *  置位后由 `resizeObserver` 在视口获得非零尺寸时补一次 `fitToView()`。 */
+  private needsFit = false;
+  private resizeObserver: ResizeObserver | null = null;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -51,6 +58,19 @@ export class MindmapView extends TextFileView {
 
   override getIcon(): string {
     return "git-fork";
+  }
+
+  override onload(): void {
+    super.onload();
+    this.resizeObserver = new ResizeObserver((entries) => {
+      if (!this.needsFit) return;
+      const entry = entries[0];
+      if (entry === undefined) return;
+      const { width, height } = entry.contentRect;
+      if (width <= 0 || height <= 0) return;
+      this.fitToView();
+    });
+    this.resizeObserver.observe(this.root);
   }
 
   getDoc(): MindDoc | null {
@@ -70,6 +90,9 @@ export class MindmapView extends TextFileView {
       root: applyCollapsedPaths(parsed.root, readCollapsed(parsed.frontmatter)),
     };
     this.render();
+    // 视口此时可能还没有完成布局（尺寸为 0），fitToView() 在那种情况下是无操作。
+    // needsFit 置位后由 resizeObserver 在视口拿到非零尺寸时补一次。
+    this.needsFit = true;
     this.fitToView();
   }
 
@@ -85,6 +108,13 @@ export class MindmapView extends TextFileView {
     this.layers = null;
     this.lastLayout = null;
     this.selectedId = null;
+    // `this.root` 本身不会被重建（见 attachCameraEvents 的 eventsAttached 守卫），
+    // 但控件与相机状态属于「当前文档」的展示状态，文件切换后必须重置，否则新文档
+    // 会继承上一份文档的缩放/平移，且 controls 会指向已被 clear(this.root) 移除的
+    // 旧 DOM 节点。
+    this.controls = null;
+    this.panOrigin = null;
+    this.camera = IDENTITY;
     clear(this.root);
   }
 
@@ -137,6 +167,8 @@ export class MindmapView extends TextFileView {
       this.clearSaveTimer();
       await this.save();
     }
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
     await super.onClose();
   }
 
@@ -159,7 +191,10 @@ export class MindmapView extends TextFileView {
         onZoomOut: () => this.zoom(1 / 1.2),
         onFit: () => this.fitToView(),
       });
-      this.attachCameraEvents();
+      if (!this.eventsAttached) {
+        this.attachCameraEvents();
+        this.eventsAttached = true;
+      }
     }
     this.lastLayout = renderMindmap(this.layers, this.doc.root, this.selectedId);
     this.applyCamera();
@@ -181,11 +216,16 @@ export class MindmapView extends TextFileView {
   fitToView(): void {
     if (this.lastLayout === null) return;
     const rect = this.root.getBoundingClientRect();
+    // 视口尚未完成布局时尺寸为 0：fit() 对此返回单位相机（不产生 NaN），但那不是
+    // 我们想要的「已完成适应」结果，所以在这里直接跳过、保留 needsFit，等
+    // resizeObserver 在视口拿到真实尺寸后再补一次 fitToView()。
+    if (rect.width <= 0 || rect.height <= 0) return;
     this.camera = fit(
       { width: this.lastLayout.width, height: this.lastLayout.height },
       { width: rect.width, height: rect.height },
     );
     this.applyCamera();
+    this.needsFit = false;
   }
 
   private attachCameraEvents(): void {
@@ -207,11 +247,14 @@ export class MindmapView extends TextFileView {
       this.applyCamera();
     });
 
-    // 空白处按下拖拽平移。
+    // 空白处按下拖拽平移。节点（.mm-node）以及任何画布上的「界面元素」（约定用
+    // .mm-no-pan 标记，见 controls.ts）都不触发平移；后续任务新增的工具栏/面板/
+    // 弹出框只需加上这个类，不用再逐个把类名加进这里的判断列表。
     this.registerDomEvent(this.root, "pointerdown", (event: PointerEvent) => {
-      const onNode = (event.target as HTMLElement).closest(".mm-node") !== null;
-      const onControls = (event.target as HTMLElement).closest(".mm-controls") !== null;
-      if (onNode || onControls || event.button !== 0) return;
+      const target = event.target as HTMLElement;
+      const onNode = target.closest(".mm-node") !== null;
+      const onChrome = target.closest(".mm-no-pan") !== null;
+      if (onNode || onChrome || event.button !== 0) return;
 
       this.panOrigin = { x: event.clientX, y: event.clientY };
       this.root.setPointerCapture(event.pointerId);
@@ -220,6 +263,12 @@ export class MindmapView extends TextFileView {
 
     this.registerDomEvent(this.root, "pointermove", (event: PointerEvent) => {
       if (this.panOrigin === null) return;
+      // event.buttons === 0 表示按钮已经在别处（例如失焦、被系统接管）被释放，
+      // 但我们从未收到 pointerup/pointercancel；主动结束平移，避免"粘住"。
+      if (event.buttons === 0) {
+        this.endPan(event.pointerId);
+        return;
+      }
       this.camera = panBy(
         this.camera,
         event.clientX - this.panOrigin.x,
@@ -230,10 +279,27 @@ export class MindmapView extends TextFileView {
     });
 
     this.registerDomEvent(this.root, "pointerup", (event: PointerEvent) => {
-      if (this.panOrigin === null) return;
-      this.panOrigin = null;
-      this.root.releasePointerCapture(event.pointerId);
-      this.root.removeClass("mm-panning");
+      this.endPan(event.pointerId);
     });
+
+    // 窗口失焦、系统接管手势（如触控板被 OS 收回）等场景下，浏览器只会发出
+    // pointercancel，不会有 pointerup；必须用同一套清理逻辑收尾，否则
+    // panOrigin 悬空、下一次普通 hover 会被当成继续平移。
+    this.registerDomEvent(this.root, "pointercancel", (event: PointerEvent) => {
+      this.endPan(event.pointerId);
+    });
+  }
+
+  /** 结束平移，pointerup/pointercancel/buttons===0 三条路径共用，避免互相漂移。 */
+  private endPan(pointerId: number): void {
+    if (this.panOrigin === null) return;
+    this.panOrigin = null;
+    try {
+      this.root.releasePointerCapture(pointerId);
+    } catch {
+      // pointerId 未知或已释放（例如 pointercancel 之后浏览器已自动释放）时会抛出，
+      // 这里只是收尾状态，吞掉即可。
+    }
+    this.root.removeClass("mm-panning");
   }
 }
