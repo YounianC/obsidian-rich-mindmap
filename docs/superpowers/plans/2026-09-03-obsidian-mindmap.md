@@ -18,7 +18,7 @@
 - frontmatter 中插件只拥有 `mindmap` 与 `mindmap-collapsed` 两个键，其余键与顺序原样保留。
 - 缩进写入统一 2 空格；读取兼容 2 空格 / 4 空格 / Tab。
 - 保存只走 `TextFileView` 的 `getViewData`/`setViewData` 机制 + 400ms 防抖，**禁止直接调用 `vault.modify`**。
-- 允许且仅允许两条写回归一化：不以换行结尾的文件被补上尾换行；松散列表（列表项之间的空行）被写成紧凑列表。其余任何内容变化都是 bug。
+- 允许且仅允许三条写回归一化：不以换行结尾的文件被补上尾换行；松散列表（列表项之间的空行）被写成紧凑列表；CRLF 换行在读取时归一化为 LF。其余任何内容变化都是 bug。
 - 每个 Task 结束时 `npx tsc --noEmit` 与 `npx vitest run` 必须全绿。
 
 ---
