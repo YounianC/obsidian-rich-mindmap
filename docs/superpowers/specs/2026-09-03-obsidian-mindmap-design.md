@@ -108,6 +108,9 @@ mindmap-collapsed:
 3. 缩进读取时兼容 2 空格 / 4 空格 / Tab（按文件中首次出现的缩进单位推断）；写入时统一为 2 空格。
 4. 保存走 Obsidian `TextFileView` 的 `getViewData`/`setViewData` 机制配合 400ms 防抖，**不直接调用 `vault.modify`**，避免与编辑器争抢写入。
 5. 往返稳定性由属性测试保证：对任意合法 `MindDoc`，`parse(serialize(doc))` 深度等于 `doc`；对任意规范化 Markdown，`serialize(parse(md)) === md`。
+6. 允许且仅允许两条写回归一化，其余任何内容变化都是缺陷：
+   - 不以换行结尾的文件被补上尾换行；
+   - 松散列表（列表项之间存在空行）被写成紧凑列表。
 
 ## 5. 架构
 
