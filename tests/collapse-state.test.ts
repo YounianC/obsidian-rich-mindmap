@@ -143,3 +143,122 @@ describe("setMindmapFlag", () => {
     expect(setMindmapFlag(null, true)).toBe("mindmap: true");
   });
 });
+
+describe("frontmatter key boundary detection (保存非拥有键)", () => {
+  it("中文键在拥有键之后被保留", () => {
+    const fm = 'mindmap-collapsed:\n  - "old"\n名字: 张三\ntitle: x';
+    const result = writeCollapsed(fm, ["new"]);
+    expect(result).toContain("名字: 张三");
+    expect(result).toContain("title: x");
+    expect(result).toBe('mindmap-collapsed:\n  - "new"\n名字: 张三\ntitle: x');
+  });
+
+  it("dotted 键在拥有键之后被保留", () => {
+    const fm = 'mindmap-collapsed:\n  - "old"\nmy.key: 1\ntitle: x';
+    const result = writeCollapsed(fm, ["new"]);
+    expect(result).toContain("my.key: 1");
+    expect(result).toContain("title: x");
+    expect(result).toBe('mindmap-collapsed:\n  - "new"\nmy.key: 1\ntitle: x');
+  });
+
+  it("空行在拥有键之后被保留", () => {
+    const fm = 'mindmap-collapsed:\n  - "old"\n\ntitle: x';
+    const result = writeCollapsed(fm, ["new"]);
+    expect(result).toBe('mindmap-collapsed:\n  - "new"\n\ntitle: x');
+  });
+
+  it("注释行在拥有键之后被保留", () => {
+    const fm = 'mindmap-collapsed:\n  - "old"\n# comment\ntitle: x';
+    const result = writeCollapsed(fm, ["new"]);
+    expect(result).toContain("# comment");
+    expect(result).toBe('mindmap-collapsed:\n  - "new"\n# comment\ntitle: x');
+  });
+
+  it("非拥有块序列键在拥有键之后被保留", () => {
+    const fm = 'mindmap-collapsed:\n  - "old"\ntags:\n  - a\n  - b\ntitle: x';
+    const result = writeCollapsed(fm, ["new"]);
+    expect(result).toContain("tags:");
+    expect(result).toContain("  - a");
+    expect(result).toContain("  - b");
+    expect(result).toBe(
+      'mindmap-collapsed:\n  - "new"\ntags:\n  - a\n  - b\ntitle: x',
+    );
+  });
+
+  it("嵌套映射在拥有键之后被保留", () => {
+    const fm = 'mindmap-collapsed:\n  - "old"\nobj:\n  sub: 1\ntitle: x';
+    const result = writeCollapsed(fm, ["new"]);
+    expect(result).toContain("obj:");
+    expect(result).toContain("  sub: 1");
+    expect(result).toBe(
+      'mindmap-collapsed:\n  - "new"\nobj:\n  sub: 1\ntitle: x',
+    );
+  });
+
+  it("多行块标量在拥有键之后被保留", () => {
+    const fm =
+      'mindmap-collapsed:\n  - "old"\ndescription: |\n  line 1\n  line 2\ntitle: x';
+    const result = writeCollapsed(fm, ["new"]);
+    expect(result).toContain("description: |");
+    expect(result).toContain("  line 1");
+    expect(result).toContain("  line 2");
+    expect(result).toBe(
+      'mindmap-collapsed:\n  - "new"\ndescription: |\n  line 1\n  line 2\ntitle: x',
+    );
+  });
+
+  it("拥有键作为第一个键时被正确替换", () => {
+    const fm =
+      'mindmap-collapsed:\n  - "old"\nmindmap: true\ntitle: x\n名字: 张三';
+    const result = writeCollapsed(fm, ["new"]);
+    expect(result).toBe(
+      'mindmap-collapsed:\n  - "new"\nmindmap: true\ntitle: x\n名字: 张三',
+    );
+  });
+
+  it("拥有键作为最后一个键时被正确替换", () => {
+    const fm = 'title: x\n名字: 张三\nmindmap-collapsed:\n  - "old"';
+    const result = writeCollapsed(fm, ["new"]);
+    expect(result).toBe('title: x\n名字: 张三\nmindmap-collapsed:\n  - "new"');
+  });
+
+  it("拥有键在中间时被正确替换，前后键都被保留", () => {
+    const fm = 'title: x\nmindmap-collapsed:\n  - "old"\n名字: 张三';
+    const result = writeCollapsed(fm, ["new"]);
+    expect(result).toBe('title: x\nmindmap-collapsed:\n  - "new"\n名字: 张三');
+  });
+
+  it("值中包含冒号时被正确处理", () => {
+    const fm = 'mindmap-collapsed:\n  - "old"\ndesc: "value: with colon"\ntitle: x';
+    const result = writeCollapsed(fm, ["new"]);
+    expect(result).toContain('desc: "value: with colon"');
+    expect(result).toBe(
+      'mindmap-collapsed:\n  - "new"\ndesc: "value: with colon"\ntitle: x',
+    );
+  });
+
+  it("值中包含井号时被正确处理", () => {
+    const fm = 'mindmap-collapsed:\n  - "old"\ndesc: "value # hash"\ntitle: x';
+    const result = writeCollapsed(fm, ["new"]);
+    expect(result).toContain('desc: "value # hash"');
+    expect(result).toBe(
+      'mindmap-collapsed:\n  - "new"\ndesc: "value # hash"\ntitle: x',
+    );
+  });
+
+  it("中文键之后的 setMindmapFlag 保留中文键", () => {
+    const fm = 'mindmap: false\n名字: 张三\ntitle: x';
+    const result = setMindmapFlag(fm, true);
+    expect(result).toContain("名字: 张三");
+    expect(result).toContain("title: x");
+    expect(result).toBe("mindmap: true\n名字: 张三\ntitle: x");
+  });
+
+  it("删除拥有键时其后的中文键被保留", () => {
+    const fm = 'mindmap-collapsed:\n  - "old"\n名字: 张三\ntitle: x';
+    const result = writeCollapsed(fm, []);
+    expect(result).toContain("名字: 张三");
+    expect(result).toContain("title: x");
+    expect(result).toBe("名字: 张三\ntitle: x");
+  });
+});
