@@ -139,4 +139,33 @@ describe("parse", () => {
     const doc = parse("# t\n\n* a\n", "x.md");
     expect(doc.root.children.map((c) => c.text)).toEqual(["a"]);
   });
+
+  it("CRLF 文档解析结果与 LF 等价", () => {
+    const crlf = SAMPLE.replace(/\n/g, "\r\n");
+    const doc = parse(crlf, "工作内容.md");
+    expect(doc.hasHeading).toBe(true);
+    expect(doc.root.text).toBe("工作内容");
+    expect(doc.root.children.map((c) => c.text)).toEqual(["呼叫中心", "WP"]);
+    expect(doc.root.children[0].children.map((c) => c.text)).toEqual([
+      "管理向",
+      "业务向",
+    ]);
+    expect(
+      doc.root.children[0].children[0].children.map((c) => c.text),
+    ).toEqual(["任务安排"]);
+  });
+
+  it("CRLF 文档的 preamble/headingGap/tail 不含 \\r", () => {
+    const crlf = "说明文字\r\n\r\n# t\r\n\r\n- a\r\n\r\n结尾说明\r\n";
+    const doc = parse(crlf, "x.md");
+    expect(doc.preamble).not.toContain("\r");
+    expect(doc.headingGap).not.toContain("\r");
+    expect(doc.tail).not.toContain("\r");
+  });
+
+  it("孤立的 \\r（非 \\r\\n）不被归一化，原样保留", () => {
+    const doc = parse("# t\n\n- a\n  续\r行\n- b\n", "x.md");
+    expect(doc.root.children[0].continuation).toEqual(["  续\r行"]);
+    expect(doc.root.children.map((c) => c.text)).toEqual(["a", "b"]);
+  });
 });

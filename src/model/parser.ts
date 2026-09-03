@@ -123,7 +123,10 @@ function buildTree(items: ListItemLine[], root: MindNode): void {
  * 列表块之外的一切内容（frontmatter、前言、尾块）原样保留。
  */
 export function parse(md: string, fileName: string): MindDoc {
-  let rest = md;
+  // CRLF → LF：仅归一化真正的行尾序列，不触碰孤立的 \r（旧版 Mac 换行符或文本中的
+  // 杂散字符）。归一化后 frontmatter/preamble/headingGap/tail 全部为 LF，写回时
+  // 输出统一的行尾，不会产生混合换行符的文件。
+  let rest = md.replace(/\r\n/g, "\n");
   let frontmatter: string | null = null;
 
   const fm = FRONTMATTER_RE.exec(rest);
