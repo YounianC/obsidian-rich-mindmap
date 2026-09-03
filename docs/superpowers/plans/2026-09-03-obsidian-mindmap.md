@@ -3162,6 +3162,8 @@ import type { LayoutResult } from "./view/layout";
   --mm-flag-blue: #3b82f6;
   --mm-flag-purple: #a855f7;
   --mm-flag-gray: #9ca3af;
+
+  --mm-progress: #22c55e;
 }
 
 .mindmap-canvas {
@@ -3301,7 +3303,7 @@ import type { LayoutResult } from "./view/layout";
 }
 
 .mm-priority {
-  color: #fff;
+  color: var(--text-on-accent);
   font-size: 11px;
   font-weight: 700;
   line-height: 18px;
@@ -3324,19 +3326,19 @@ import type { LayoutResult } from "./view/layout";
 
 .mm-progress-ring {
   fill: none;
-  stroke: #22c55e;
+  stroke: var(--mm-progress);
   stroke-width: 1.5;
 }
 
 .mm-progress-wedge {
-  fill: #22c55e;
+  fill: var(--mm-progress);
   stroke: none;
 }
 
 .mm-progress-check,
 .mm-progress-hands {
   fill: none;
-  stroke: #22c55e;
+  stroke: var(--mm-progress);
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
