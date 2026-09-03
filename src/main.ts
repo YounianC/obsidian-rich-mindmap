@@ -1,4 +1,4 @@
-import { Notice, Plugin, TFile, type WorkspaceLeaf } from "obsidian";
+import { MarkdownView, Notice, Plugin, TFile, type WorkspaceLeaf } from "obsidian";
 import {
   DEFAULT_SETTINGS,
   MindmapSettingTab,
@@ -26,11 +26,17 @@ export default class MindmapPlugin extends Plugin {
       id: "toggle-mindmap-view",
       name: "切换思维导图 / 源码视图",
       checkCallback: (checking: boolean) => {
-        const leaf = this.app.workspace.getMostRecentLeaf();
-        const file = this.app.workspace.getActiveFile();
-        if (leaf === null || file === null || file.extension !== "md") return false;
+        // 用「哪个视图持有目标文件」反推 leaf，而不是用 getMostRecentLeaf() 去配
+        // getActiveFile()：分屏或侧栏聚焦时二者可能指向不同的 leaf，导致命令误
+        // 切一个没有显示该文件的面板。leaf 可能当前是 MarkdownView 也可能是
+        // MindmapView，两种都要处理。
+        const view =
+          this.app.workspace.getActiveViewOfType(MarkdownView) ??
+          this.app.workspace.getActiveViewOfType(MindmapView);
+        const file = view?.file ?? null;
+        if (view === null || file === null || file.extension !== "md") return false;
         if (checking) return true;
-        void this.toggleView(leaf, file);
+        void this.toggleView(view.leaf, file);
         return true;
       },
     });
@@ -59,11 +65,19 @@ export default class MindmapPlugin extends Plugin {
         if (!this.settings.autoOpen || file === null) return;
         if (file.extension !== "md" || this.flipping.has(file.path)) return;
 
-        const leaf = this.app.workspace.getMostRecentLeaf();
-        if (leaf === null || leaf.view.getViewType() !== "markdown") return;
-
         const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
         if (frontmatter?.mindmap !== true) return;
+
+        // file-open 事件不带 leaf，不能靠 getMostRecentLeaf() 猜：分屏/侧栏场景下
+        // 它可能不是显示这个文件的面板。改为遍历所有 markdown leaf，只挑视图里
+        // file.path 与打开的文件一致的那个；找不到就什么都不做。
+        const leaf = this.app.workspace
+          .getLeavesOfType("markdown")
+          .find(
+            (candidate) =>
+              candidate.view instanceof MarkdownView && candidate.view.file?.path === file.path,
+          );
+        if (leaf === undefined) return;
 
         this.flipping.add(file.path);
         void leaf

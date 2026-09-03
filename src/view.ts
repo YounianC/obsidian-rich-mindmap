@@ -1,4 +1,4 @@
-import { TextFileView, type WorkspaceLeaf } from "obsidian";
+import { TextFileView, type TFile, type WorkspaceLeaf } from "obsidian";
 import {
   applyCollapsedPaths,
   collectCollapsedPaths,
@@ -42,6 +42,10 @@ export class MindmapView extends TextFileView {
 
   /** Obsidian 读取文件内容后调用。 */
   override setViewData(data: string, _clear: boolean): void {
+    // 防御性清理：正常情况下 onUnloadFile 已经在文件切换前把上一份文档的待保存
+    // 计时器 flush 掉了；这里再兜底一次，避免任何遗漏路径下的计时器在新文档加载
+    // 后触发，把新文档的内容错误地当成旧文档保存。
+    this.clearSaveTimer();
     const fileName = this.file?.name ?? "未命名.md";
     const parsed = parse(data, fileName);
     this.doc = {
@@ -58,8 +62,23 @@ export class MindmapView extends TextFileView {
   }
 
   override clear(): void {
+    this.clearSaveTimer();
     this.doc = null;
     clear(this.root);
+  }
+
+  /**
+   * Obsidian 在把这个视图实例切换到另一个文件之前调用（此时 `this.file`/`this.doc`
+   * 仍指向旧文件）。这是 flush 防抖保存的正确时机：Obsidian 会复用同一个 leaf 的
+   * 视图实例加载新文件，如果不在这里 flush，旧文件的计时器会在新文件加载后触发，
+   * 用新文档的内容错误地保存到旧文件。
+   */
+  override async onUnloadFile(file: TFile): Promise<void> {
+    if (this.saveTimer !== null) {
+      this.clearSaveTimer();
+      await this.save();
+    }
+    await super.onUnloadFile(file);
   }
 
   /** 更新内存文档、重绘、防抖写回文件。 */
@@ -78,19 +97,26 @@ export class MindmapView extends TextFileView {
   }
 
   private scheduleSave(): void {
-    if (this.saveTimer !== null) window.clearTimeout(this.saveTimer);
+    this.clearSaveTimer();
     this.saveTimer = window.setTimeout(() => {
       this.saveTimer = null;
       void this.save();
     }, SAVE_DEBOUNCE_MS);
   }
 
-  override async onClose(): Promise<void> {
+  private clearSaveTimer(): void {
     if (this.saveTimer !== null) {
       window.clearTimeout(this.saveTimer);
       this.saveTimer = null;
+    }
+  }
+
+  override async onClose(): Promise<void> {
+    if (this.saveTimer !== null) {
+      this.clearSaveTimer();
       await this.save();
     }
+    await super.onClose();
   }
 
   /** Task 9 会用真实渲染替换这里的临时文本输出。 */
