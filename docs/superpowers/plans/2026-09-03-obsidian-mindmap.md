@@ -4846,6 +4846,8 @@ git commit -m "feat: 标记面板与浮层定位"
 
 **按钮（左到右，均带 tooltip）**：添加子节点 · 添加兄弟节点 · 删除节点 · 文字样式（展开加粗/斜体/删除线）· 标记 · 插入链接 · 折叠子树。选中根节点时「添加兄弟节点」与「删除节点」禁用；无子节点时「折叠子树」禁用。
 
+**必须遵守 Task 10 引入的 `mm-no-pan` 约定**：工具栏、样式菜单、输入浮层三个元素都要带上 `mm-no-pan` 类，否则在它们上面按下拖拽会连带平移画布。标记面板（Task 13）同理。
+
 **文字样式语义**：对整个节点文本做包裹标记的开关 —— 已被该标记包裹则去掉，否则加上。不做选区级富文本，保持原始 Markdown 简单可读。
 
 - [ ] **Step 1: 给 `placeNear` 增加 `prefer` 参数**
@@ -5221,11 +5223,11 @@ import type { Marks } from "./model/types";
 在 `attachCameraEvents()` 里判断「空白处按下」时，把工具栏与面板也算作非空白区域 —— 把 `onControls` 那一行改为：
 
 ```ts
+      // Task 10 起改用标记类约定：任何浮层只要带 mm-no-pan 就自动排除，
+      // 不必回来修改这里的判断。新增浮层时给它加上该类即可。
       const target = event.target as HTMLElement;
       const onNode = target.closest(".mm-node") !== null;
-      const onChrome =
-        target.closest(".mm-controls, .mm-toolbar, .mm-panel, .mm-style-menu, .mm-input-popover") !==
-        null;
+      const onChrome = target.closest(".mm-no-pan") !== null;
       if (onNode || onChrome || event.button !== 0) return;
 ```
 
@@ -5235,11 +5237,7 @@ import type { Marks } from "./model/types";
   host.on("pointerdown", (event: PointerEvent) => {
     if (host.isEditing()) return;
     const target = event.target;
-    if (
-      target instanceof HTMLElement &&
-      target.closest(".mm-controls, .mm-toolbar, .mm-panel, .mm-style-menu, .mm-input-popover") !==
-        null
-    ) {
+    if (target instanceof HTMLElement && target.closest(".mm-no-pan") !== null) {
       return;
     }
     const id = nodeIdFrom(target);
