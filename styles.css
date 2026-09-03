@@ -29,3 +29,12 @@
   overflow: visible;
   pointer-events: none;
 }
+
+.mindmap-debug {
+  margin: 0;
+  padding: 16px;
+  font-family: var(--font-monospace);
+  font-size: 13px;
+  color: var(--text-normal);
+  white-space: pre;
+}
