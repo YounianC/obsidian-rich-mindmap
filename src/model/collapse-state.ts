@@ -95,8 +95,12 @@ function findKeyRange(
     const match = KEY_LINE_RE.exec(lines[i]);
     if (match === null || match[1] !== key) continue;
 
+    // A YAML key's block is the key line plus all following indented lines.
+    // We use indentation (space or tab) to detect the end, not key-like patterns,
+    // so non-ASCII keys (Chinese 名字:), dotted keys (my.key:), and comments
+    // are correctly recognized as block boundaries and preserved.
     let end = i + 1;
-    while (end < lines.length && !KEY_LINE_RE.test(lines[end])) end++;
+    while (end < lines.length && /^[ \t]/.test(lines[end])) end++;
     return { start: i, end };
   }
   return null;

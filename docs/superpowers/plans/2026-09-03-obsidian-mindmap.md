@@ -1451,7 +1451,15 @@ function fromLines(lines: readonly string[]): string | null {
 
 const KEY_LINE_RE = /^([A-Za-z0-9_-]+):/;
 
-/** 定位某个顶层键覆盖的行区间 [start, end)；不存在时返回 null。 */
+/**
+ * 定位某个顶层键覆盖的行区间 [start, end)；不存在时返回 null。
+ *
+ * 块的结束以「缩进」判定，而不是「下一个看起来像键的行」。用正则找下一个键会
+ * 漏掉键名超出 [A-Za-z0-9_-] 的行（例如中文键 `名字:`、带点的 `my.key:`），把它们
+ * 当成本键块的一部分从而在重写时静默删除；空行与列首注释也会被一并吞掉。
+ * YAML 里顶层键的块 = 键行 + 其后所有缩进行，这条规则同时正确处理块序列、
+ * 嵌套映射与块标量，并让空行 / 注释 / 任意键名都能正确终止块。
+ */
 function findKeyRange(
   lines: readonly string[],
   key: string,
@@ -1461,7 +1469,7 @@ function findKeyRange(
     if (match === null || match[1] !== key) continue;
 
     let end = i + 1;
-    while (end < lines.length && !KEY_LINE_RE.test(lines[end])) end++;
+    while (end < lines.length && /^[ \t]/.test(lines[end])) end++;
     return { start: i, end };
   }
   return null;
