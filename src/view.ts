@@ -11,6 +11,8 @@ import {
   addChild,
   addSibling,
   findNode,
+  findParent,
+  moveNode,
   navigate,
   removeNode,
   setMarks,
@@ -29,6 +31,7 @@ import {
 } from "./view/camera";
 import { createControls } from "./view/controls";
 import { clear, el } from "./view/dom";
+import { attachDrag, type DropTarget } from "./view/drag";
 import {
   attachInteractions,
   startInlineEdit,
@@ -232,6 +235,7 @@ export class MindmapView extends TextFileView {
       if (!this.eventsAttached) {
         this.attachCameraEvents();
         this.attachInteractionLayer();
+        this.attachDragLayer();
         this.eventsAttached = true;
       }
     }
@@ -258,6 +262,43 @@ export class MindmapView extends TextFileView {
       dispatch: (intent) => this.handleIntent(intent),
       selectedId: () => this.selectedId,
       isEditing: () => this.editingId !== null,
+    });
+  }
+
+  private attachDragLayer(): void {
+    attachDrag({
+      root: this.root,
+      on: (type, handler) => this.registerDomEvent(this.root, type, handler),
+      isEditing: () => this.editingId !== null,
+      onDrop: (sourceId, target) => this.handleDrop(sourceId, target),
+    });
+  }
+
+  private handleDrop(sourceId: string, target: DropTarget): void {
+    if (this.doc === null) return;
+    const doc = this.doc;
+
+    if (target.zone === "child") {
+      const node = findNode(doc.root, target.targetId);
+      if (node === null) return;
+      this.applyDoc({
+        ...doc,
+        root: moveNode(doc.root, sourceId, target.targetId, node.children.length),
+      });
+      return;
+    }
+
+    const parent = findParent(doc.root, target.targetId);
+    if (parent === null) return;
+    const index = parent.children.findIndex((c) => c.id === target.targetId);
+    // 同父内向下移动时，源节点先被摘除，插入下标要相应前移。
+    const sourceIndex = parent.children.findIndex((c) => c.id === sourceId);
+    const shift = sourceIndex >= 0 && sourceIndex < index ? -1 : 0;
+    const insertAt = index + (target.zone === "after" ? 1 : 0) + shift;
+
+    this.applyDoc({
+      ...doc,
+      root: moveNode(doc.root, sourceId, parent.id, insertAt),
     });
   }
 

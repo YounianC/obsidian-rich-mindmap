@@ -288,3 +288,40 @@
   outline: 2px solid var(--interactive-accent);
   cursor: text;
 }
+
+/* ---------- 拖拽移动 ---------- */
+
+.mindmap-view.mm-dragging {
+  cursor: grabbing;
+}
+
+.mindmap-view.mm-dragging .mm-node {
+  pointer-events: auto;
+}
+
+.mm-drag-ghost {
+  position: absolute;
+  z-index: 20;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  background: var(--interactive-accent);
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0.9;
+}
+
+.mm-drop-indicator {
+  position: absolute;
+  z-index: 19;
+  box-sizing: border-box;
+  background: var(--interactive-accent);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.mm-drop-indicator[data-zone="child"] {
+  background: transparent;
+  border: 2px dashed var(--interactive-accent);
+  border-radius: 6px;
+}
