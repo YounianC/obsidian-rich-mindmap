@@ -1,4 +1,4 @@
-import { PROGRESS_STAGE_VALUES } from "../model/marks";
+import { PROGRESS_STAGE_VALUES, progressStage } from "../model/marks";
 import { FLAG_COLORS, type Marks } from "../model/types";
 import { el } from "./dom";
 import {
@@ -69,11 +69,23 @@ export function openMarksPanel(
 
   const progressRow = section(panel, "进度");
   for (const progress of PROGRESS_STAGE_VALUES) {
+    // 进度是唯一按「档位」而非精确值判定高亮/取消的一档：parseMarks 允许写入
+    // 0-100 之间的任意整数（例如手写或 AI 写入的 (60%)），项目要求这类原值必须
+    // 原样保留、不得被这里展示用的七个代表值（PROGRESS_STAGE_VALUES）覆写。
+    // 若改成精确相等比较，(60%) 会显示成「无选项高亮」，点击视觉上匹配的 67%
+    // 选项时 toggleMark 的精确比较也不会命中，结果是把 60 静默改写成 67——这正是
+    // 规范禁止的重写。因此这里必须用 progressStage() 归档后比较，并且在「取消」
+    // 这个分支里把 handlers.onToggle 传回的是节点当前的精确值（而不是代表值），
+    // 让 toggleMark 的精确比较命中并清除该标记。优先级、旗帜是没有量化的精确值
+    // 域（1-7、七种颜色名），不要照搬这个模式。
+    const active =
+      current.progress !== undefined &&
+      progressStage(current.progress) === progressStage(progress);
     optionButton(
       progressRow,
-      current.progress === progress,
+      active,
       `进度 ${progress}%`,
-      () => handlers.onToggle({ progress }),
+      () => handlers.onToggle({ progress: active ? current.progress : progress }),
       (parent) => void buildProgressBadge(progress, parent),
     );
   }
