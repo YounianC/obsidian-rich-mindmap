@@ -85,6 +85,7 @@
   align-items: center;
   gap: 6px;
   box-sizing: border-box;
+  width: max-content;
   max-width: 360px;
   padding: 2px 4px 4px;
   color: var(--text-normal);
