@@ -188,3 +188,45 @@ describe("layout 连线", () => {
     expect(result.edges.map((e) => e.toId).sort()).toEqual(["n1", "n4"]);
   });
 });
+
+describe("根节点出边的起点", () => {
+  it("根节点的出边从它的右边中点出发，不是右下角", () => {
+    const root = tree();
+    const result = layout(root, sizes(root), DEFAULT_LAYOUT_OPTIONS);
+    const rootRect = result.rects.get("n0")!;
+    const rootEdges = result.edges.filter((e) => e.fromId === "n0");
+    expect(rootEdges).toHaveLength(2);
+    for (const edge of rootEdges) {
+      const start = edge.path.match(/^M (-?[\d.]+) (-?[\d.]+)/)!;
+      expect(Number(start[1])).toBe(rootRect.x + rootRect.width);
+      expect(Number(start[2])).toBe(rootRect.y + rootRect.height / 2);
+    }
+  });
+
+  it("非根节点的出边仍从右下角出发，与它自己的下划线严丝合缝", () => {
+    const root = tree();
+    const result = layout(root, sizes(root), DEFAULT_LAYOUT_OPTIONS);
+    // n1 的出边（指向 n2 / n3）起点必须等于 n1 入边的 H 段终点，
+    // 否则父下划线与子曲线之间会出现可见台阶（见 bezier 的说明）。
+    const parent = result.rects.get("n1")!;
+    const incoming = result.edges.find((e) => e.toId === "n1")!;
+    const seam = Number(incoming.path.match(/H (-?[\d.]+)$/)![1]);
+    expect(seam).toBe(parent.x + parent.width);
+    for (const edge of result.edges.filter((e) => e.fromId === "n1")) {
+      const start = edge.path.match(/^M (-?[\d.]+) (-?[\d.]+)/)!;
+      expect(Number(start[1])).toBe(parent.x + parent.width);
+      expect(Number(start[2])).toBe(parent.y + parent.height);
+    }
+  });
+
+  it("根节点高度为奇数时中点取半像素，不做取整", () => {
+    const root = tree();
+    const map = sizes(root);
+    map.set("n0", { width: 100, height: 21 });
+    const result = layout(root, map, DEFAULT_LAYOUT_OPTIONS);
+    const rootRect = result.rects.get("n0")!;
+    const edge = result.edges.find((e) => e.fromId === "n0")!;
+    const start = edge.path.match(/^M (-?[\d.]+) (-?[\d.]+)/)!;
+    expect(Number(start[2])).toBe(rootRect.y + 10.5);
+  });
+});

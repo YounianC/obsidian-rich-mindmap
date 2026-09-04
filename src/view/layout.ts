@@ -103,10 +103,16 @@ function computeSpans(
  *
  * 根节点没有入边（它不是任何 `collectEdges` 调用里的 `child`），所以根节点
  * 永远不会被画出下划线，与"根节点是实心方框、不带下划线"的设计保持不变。
+ *
+ * 正因为根节点没有下划线可对接，它的出边起点改走**右边中点**（`fromRoot`）：
+ * 非根节点的出边必须从右下角出发才能与那条下划线严丝合缝，而根节点是一个
+ * 带背景和边框的实心圆角方框，线从它的右下角拐出来会看着像从盒子的角上漏出，
+ * 而不是从盒子里长出来。这个差别只对根节点成立——其余节点没有边框，起点在
+ * 底边正是下划线所在，不存在"从角上漏出"的观感问题。
  */
-function bezier(from: Rect, to: Rect): string {
+function bezier(from: Rect, to: Rect, fromRoot: boolean): string {
   const x0 = from.x + from.width;
-  const y0 = from.y + from.height;
+  const y0 = fromRoot ? from.y + from.height / 2 : from.y + from.height;
   const x1 = to.x;
   const y1 = to.y + to.height;
   const mx = (x0 + x1) / 2;
@@ -174,7 +180,8 @@ export function layout(
       edges.push({
         fromId: node.id,
         toId: child.id,
-        path: bezier(from, to),
+        // depth 是 from 节点的深度，为 0 即这条边由根节点引出。
+        path: bezier(from, to, depth === 0),
         depth: depth + 1,
         branch: nextBranch,
       });
