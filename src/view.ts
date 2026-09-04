@@ -18,9 +18,10 @@ import {
   setMarks,
   setText,
   toggleCollapse,
+  toggleMark,
 } from "./model/tree-ops";
 import { parseMarks } from "./model/marks";
-import type { MindDoc, MindNode } from "./model/types";
+import type { Marks, MindDoc, MindNode } from "./model/types";
 import {
   cssTransform,
   fit,
@@ -32,13 +33,16 @@ import {
 import { createControls } from "./view/controls";
 import { clear, el } from "./view/dom";
 import { attachDrag, type DropTarget } from "./view/drag";
+import { openInputPopover } from "./view/input-popover";
 import {
   attachInteractions,
   startInlineEdit,
   type Intent,
 } from "./view/interaction";
 import type { LayoutResult } from "./view/layout";
+import { openMarksPanel } from "./view/marks-panel";
 import { createLayers, renderMindmap, type RenderLayers } from "./view/renderer";
+import { createToolbar } from "./view/toolbar";
 
 export const MINDMAP_VIEW_TYPE = "mindmap-view";
 
@@ -68,6 +72,14 @@ export class MindmapView extends TextFileView {
    *  避免留下一个空文本的节点被写进文件。一旦该节点被成功提交过一次文字（无论是
    *  否为空文本），就不再是「刚创建」的候选，见 commitText 分支。 */
   private freshNodeId: string | null = null;
+  private toolbar: ReturnType<typeof createToolbar> | null = null;
+  private marksPanel: { close(): void } | null = null;
+  /** 插入链接的输入浮层；文件切换/重建图层时必须显式 close()，否则它注册在
+   *  document 上的 pointerdown 捕获监听会在浮层 DOM 被 clear(this.root) 销毁后
+   *  继续存在，成为跨文件的监听器泄漏（见 clear()）。 */
+  private inputPopover: { close(): void } | null = null;
+  /** marksPanel/inputPopover 当前绑定的节点 id，见 closeStaleOverlays()。 */
+  private overlayOwnerId: string | null = null;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -147,6 +159,17 @@ export class MindmapView extends TextFileView {
     this.controls = null;
     this.panOrigin = null;
     this.camera = IDENTITY;
+    // 同上：工具栏与浮层同样是「当前文档」的展示状态，且标记面板/输入浮层各自
+    // 在 document 上挂了 pointerdown/keydown 捕获监听（见 marks-panel.ts、
+    // input-popover.ts）。必须显式 close() 让它们摘掉这些监听，仅仅依赖下面的
+    // clear(this.root) 销毁 DOM 节点是不够的——监听器挂在 document 而非
+    // this.root 上，不会随 DOM 移除自动解绑，否则每切换一次文件就泄漏一组。
+    this.toolbar = null;
+    this.marksPanel?.close();
+    this.marksPanel = null;
+    this.inputPopover?.close();
+    this.inputPopover = null;
+    this.overlayOwnerId = null;
     clear(this.root);
   }
 
@@ -232,6 +255,11 @@ export class MindmapView extends TextFileView {
         onZoomOut: () => this.zoom(1 / 1.2),
         onFit: () => this.fitToView(),
       });
+      // 工具栏 DOM 挂在 this.root 下，会被上面的 clear(this.root) 一并清空，
+      // 因此和 controls 一样，每次重新进入这个「创建图层」分支都要重建；
+      // 不受 eventsAttached 影响——那个守卫只管「事件监听只挂一次」，不管
+      // DOM 本身的生命周期。
+      this.toolbar = this.createToolbarForView();
       if (!this.eventsAttached) {
         this.attachCameraEvents();
         this.attachInteractionLayer();
@@ -242,6 +270,7 @@ export class MindmapView extends TextFileView {
     this.lastLayout = renderMindmap(this.layers, this.doc.root, this.selectedId);
     this.applyCamera();
     this.refreshSelectionClasses();
+    this.syncToolbar();
     if (this.pendingEditId !== null) {
       const id = this.pendingEditId;
       this.pendingEditId = null;
@@ -249,10 +278,127 @@ export class MindmapView extends TextFileView {
     }
   }
 
+  private createToolbarForView(): ReturnType<typeof createToolbar> {
+    return createToolbar(this.root, {
+      onAddChild: () => this.withSelection((id) => this.handleIntent({ kind: "addChild", id })),
+      onAddSibling: () => this.withSelection((id) => this.handleIntent({ kind: "addSibling", id })),
+      onRemove: () => this.withSelection((id) => this.handleIntent({ kind: "remove", id })),
+      onToggleCollapse: () =>
+        this.withSelection((id) => this.handleIntent({ kind: "toggleCollapse", id })),
+      onWrap: (marker) => this.withSelection((id) => this.wrapText(id, marker)),
+      onMarks: (anchor) => this.withSelection((id) => this.openMarks(id, anchor)),
+      onLink: (anchor) => this.withSelection((id) => this.insertLink(id, anchor)),
+    });
+  }
+
+  private withSelection(fn: (id: string) => void): void {
+    if (this.selectedId !== null) fn(this.selectedId);
+  }
+
+  /** 对整个节点文本做包裹标记的开关：已被该标记包裹则去掉，否则加上。
+   *  不做选区级富文本，保持原始 Markdown 简单可读。 */
+  private wrapText(id: string, marker: "**" | "*" | "~~"): void {
+    if (this.doc === null) return;
+    const node = findNode(this.doc.root, id);
+    if (node === null) return;
+
+    const wrapped =
+      node.text.startsWith(marker) &&
+      node.text.endsWith(marker) &&
+      node.text.length > marker.length * 2;
+
+    const text = wrapped
+      ? node.text.slice(marker.length, node.text.length - marker.length)
+      : `${marker}${node.text}${marker}`;
+
+    this.applyDoc({ ...this.doc, root: setText(this.doc.root, id, text) });
+  }
+
+  private openMarks(id: string, anchor: DOMRect): void {
+    if (this.doc === null) return;
+    const node = findNode(this.doc.root, id);
+    if (node === null) return;
+
+    this.marksPanel?.close();
+    this.overlayOwnerId = id;
+    this.marksPanel = openMarksPanel(this.root, anchor, node.marks, {
+      onToggle: (patch: Marks) => {
+        if (this.doc === null) return;
+        this.applyDoc({ ...this.doc, root: toggleMark(this.doc.root, id, patch) });
+      },
+      onClose: () => {
+        this.marksPanel = null;
+      },
+    });
+  }
+
+  private insertLink(id: string, anchor: DOMRect): void {
+    this.inputPopover?.close();
+    this.overlayOwnerId = id;
+    this.inputPopover = openInputPopover(this.root, anchor, {
+      placeholder: "链接目标（笔记名）",
+      onSubmit: (value) => {
+        if (this.doc === null) return;
+        const node = findNode(this.doc.root, id);
+        if (node === null) return;
+        const text = node.text === "" ? `[[${value}]]` : `${node.text} [[${value}]]`;
+        this.applyDoc({ ...this.doc, root: setText(this.doc.root, id, text) });
+      },
+    });
+  }
+
+  /**
+   * 标记面板/输入浮层都绑定着打开它们那一刻的节点 id（闭包捕获，见 openMarks/
+   * insertLink）。选中节点变化的路径不止点击一种：方向键 navigate、以及
+   * addChild/addSibling/remove 之后把 selectedId 重新指向新节点，都不经过
+   * 任何 pointerdown，不会触发这两个浮层自己的「点外部关闭」监听
+   * （marks-panel.ts/input-popover.ts 的 document pointerdown 捕获）。
+   * 如果不在这里补一次一致性检查，方向键切到别的节点后，面板/浮层其实还在
+   * 悄悄操作已经不再选中的旧节点——这正是 Task 14 第一次打通标记面板入口后
+   * 才会暴露出来的场景，Task 13 尚无法触发。
+   */
+  private closeStaleOverlays(): void {
+    if (this.marksPanel === null && this.inputPopover === null) return;
+    if (this.overlayOwnerId === this.selectedId && this.editingId === null) return;
+    this.marksPanel?.close();
+    this.inputPopover?.close();
+    this.marksPanel = null;
+    this.inputPopover = null;
+    this.overlayOwnerId = null;
+  }
+
+  /** 选中变化或重绘后同步工具栏位置与按钮可用性。 */
+  private syncToolbar(): void {
+    if (this.toolbar === null || this.layers === null || this.doc === null) return;
+    this.closeStaleOverlays();
+
+    if (this.selectedId === null || this.editingId !== null) {
+      this.toolbar.hide();
+      return;
+    }
+
+    const element = this.layers.nodes.querySelector<HTMLElement>(
+      `.mm-node[data-id="${this.selectedId}"]`,
+    );
+    const node = findNode(this.doc.root, this.selectedId);
+    if (element === null || node === null) {
+      this.toolbar.hide();
+      return;
+    }
+
+    this.toolbar.showFor(element, node.children.length > 0, node.id === this.doc.root.id);
+  }
+
   private applyCamera(): void {
     if (this.layers === null) return;
     this.layers.canvas.style.transform = cssTransform(this.camera);
     this.controls?.setScale(this.camera.scale);
+    // 缩放/平移后工具栏要跟随选中节点的新屏幕位置移动，否则会和节点脱节。
+    // 参见任务报告中的性能说明：这里的额外开销是一次按 id 的 querySelector、
+    // 一次树查找与 placeNear 内部的 getBoundingClientRect 读取，量级与已有的
+    // controls.setScale()/拖拽逻辑中同样按帧调用的 DOM 读取一致，不构成新的
+    // 布局抖动来源。
+    this.syncToolbar();
   }
 
   private attachInteractionLayer(): void {
@@ -408,6 +554,7 @@ export class MindmapView extends TextFileView {
     if (this.selectedId === id) return;
     this.selectedId = id;
     this.refreshSelectionClasses();
+    this.syncToolbar();
   }
 
   /** 只切类名，避免为选中变化做整图重排。 */
@@ -429,6 +576,11 @@ export class MindmapView extends TextFileView {
     if (node === null || element === null) return;
 
     this.editingId = id;
+    // 进入编辑态要立刻隐藏工具栏：selectedId 在双击/F2 时通常不变（节点已经是
+    // 选中状态），setSelection() 的去重会跳过同步，若这里不显式调用，工具栏会
+    // 继续悬浮在正在编辑的节点上方——此时点它的按钮（例如「文字样式」）会读到
+    // doc 里尚未提交的旧文本，和 contenteditable 里正在编辑的新内容对不上。
+    this.syncToolbar();
     startInlineEdit(
       element,
       node.text,
