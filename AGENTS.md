@@ -113,6 +113,7 @@
 - **面向用户的字符串一律走 `t()`（`src/i18n.ts`），不写死任何语言。** 中文表是 key 的唯一来源，英文表声明为 `Record<MessageKey, string>`，漏译是编译错误。`npm run check:i18n` 扫 `src/main.ts` / `src/settings.ts` / `src/view.ts` / `src/view/**` 的字符串字面量，发现中文即失败——**注释不受约束，只有字面量受约束**。报出残留时去补 `t()`，**不要放宽扫描范围或加豁免名单**，那等于把这道门禁废掉。
 - `src/i18n.ts` 既不 `import obsidian`（`getLanguage()` 只在 `main.ts` 一处调用，结果作为参数传进 `resolveLocale`），也不放进 `src/model/`（`t()` 有模块级可变状态、不是纯函数，塞进纯函数层是在骗人）。
 - **`t()` 自己不通知任何人。** 语言变更后必须由 `main.ts` 的 `applyLanguage()` 重注册命令并让各导图视图 `refreshLocale()`。已渲染的 DOM 不会自己更新——`toolbar.ts` 的 `specs` 就是在 `createToolbar()` 函数体内求值的，不重建图层文案不会变。
+- **`setLocale()` 必须紧跟 `loadSettings()`，排在 `addSettingTab()` 与 `registerCommands()` 之前。** `SettingTab.update()` 的文档写明：它「Stores the result of `getSettingDefinitions()` for rendering and search indexing」，**并且由 `addSettingTab()` 调用**。所以注册设置页那一刻的语言就被存进渲染与搜索索引了。曾因为 `setLocale` 排在 `addSettingTab` 之后，Obsidian 界面为英文时设置页出现「语言那一行中文、其余行英文」的混排（已复现并修复确认）。命令名同理，是 `addCommand` 时求值的。
 - **命令重注册的 id 必须与 `addCommand` 逐字一致**（`MindmapPlugin.COMMAND_IDS`）。写错会表现为命令重复出现或直接消失，五条门禁都看不到，只能人工验。
 - TS 里不写颜色字面量；CSS 颜色取自 Obsidian 变量或本插件的 `--mm-*` 调色板（只有调色板的**定义**可以是字面量）。阴影用 `var(--shadow-s)`。
 - 进度值原样保留，永不改写成档位代表值。面板的高亮判断按 `progressStage()` 比档位，点击已生效项时传节点的**精确当前值**让 `toggleMark` 的相等判断命中从而清除。
