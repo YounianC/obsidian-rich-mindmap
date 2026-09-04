@@ -132,6 +132,19 @@ npm run check:purity
 
 `src/model/`（`collapse-state.ts`、`marks.ts`、`parser.ts`、`serializer.ts`、`tree-ops.ts`、`types.ts`）与 `src/view/layout.ts`、`src/view/camera.ts` 是纯函数层，不依赖 Obsidian API 与 DOM，由 `npm run check:purity` 强制校验，全部有单元测试覆盖。
 
+## 发布
+
+推一个版本号 tag 即自动构建并发布 release：
+
+```bash
+# 1. 改 manifest.json 的 version，并在 versions.json 加上对应项
+# 2. 打 tag —— 名字必须与 manifest 的 version 一致，且不带 v 前缀
+git tag -a 0.2.0 -m "..."
+git push origin 0.2.0
+```
+
+GitHub Actions 会跑完类型检查、单元测试、纯函数层校验与构建，全部通过后才创建 release 并附上 `main.js`、`manifest.json`、`styles.css`。
+
 ## 项目状态
 
 版本 `0.1.0`，自用阶段。

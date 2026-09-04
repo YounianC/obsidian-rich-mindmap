@@ -98,6 +98,14 @@ npm run build         # 生成 main.js
 npm run check:purity  # 纯函数层边界
 ```
 
+## 发布
+
+推一个版本号 tag 就会触发 `.github/workflows/release.yml`：跑一遍四条门禁，然后创建 release 并附上 `main.js` / `manifest.json` / `styles.css` 三个**独立文件**（不要打包成 zip，Obsidian 按文件名逐个下载）。
+
+**tag 名必须与 `manifest.json` 的 `version` 完全一致，且不带 `v` 前缀。** Obsidian 会去 `releases/download/<version>/manifest.json` 取文件，带前缀会 404。workflow 里有一步专门校验这个，同时校验 `versions.json` 有对应项、且其值与 `minAppVersion` 一致——不一致是社区市场提交被退回的常见原因。
+
+发新版时要同步改三处：`manifest.json` 的 `version`、`versions.json` 加一项、然后打 tag。
+
 ## 自动化测不到什么
 
 设计上视图层没有自动化测试（纯函数层测试 + 人工验证的分工）。四条门禁**看不到**任何关于布局、渲染、指针与键盘行为的东西——文字竖排那个缺陷就是全部门禁通过的情况下漏出去的。

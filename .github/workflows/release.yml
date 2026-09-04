@@ -1,0 +1,100 @@
+name: Release
+
+# 推一个版本号 tag 即触发构建与发布。
+# tag 名必须与 manifest.json 的 version 完全一致，且**不带 v 前缀** ——
+# Obsidian 会去 releases/download/<version>/manifest.json 取文件，
+# 带 v 前缀会 404。下面的 pattern 与校验步骤共同把这条约束钉死。
+on:
+  push:
+    tags:
+      - "[0-9]+.[0-9]+.[0-9]+"
+      - "[0-9]+.[0-9]+.[0-9]+-*"
+
+# 只申请创建 release 所需的最小权限。用仓库内置的 GITHUB_TOKEN，
+# 不需要你保管任何密钥。
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出（含完整历史，供 release notes 生成与 tag 对象读取）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 校验 tag 与 manifest.json / versions.json 一致
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          node -e '
+            const fs = require("fs");
+            const tag = process.env.TAG;
+            const m = JSON.parse(fs.readFileSync("manifest.json", "utf8"));
+            const v = JSON.parse(fs.readFileSync("versions.json", "utf8"));
+            const fail = (msg) => { console.error("::error::" + msg); process.exit(1); };
+
+            if (tag.startsWith("v"))
+              fail(`tag「${tag}」带了 v 前缀。Obsidian 按 manifest.version 拼下载地址，带前缀会 404。请用「${m.version}」。`);
+            if (m.version !== tag)
+              fail(`tag「${tag}」与 manifest.json 的 version「${m.version}」不一致。`);
+            if (!(tag in v))
+              fail(`versions.json 里没有「${tag}」这一项。提交社区市场需要版本号到最低 Obsidian 版本的映射。`);
+            if (v[tag] !== m.minAppVersion)
+              fail(`versions.json["${tag}"] 是「${v[tag]}」，与 manifest.json 的 minAppVersion「${m.minAppVersion}」不一致。`);
+
+            console.log(`校验通过：${m.id} ${m.version}（要求 Obsidian >= ${m.minAppVersion}）`);
+          '
+        env:
+          TAG: ${{ github.ref_name }}
+
+      # 门禁与本地一致：任何一条失败就不发布。
+      - name: 类型检查
+        run: npm run typecheck
+
+      - name: 单元测试
+        run: npm test
+
+      - name: 纯函数层边界校验
+        run: npm run check:purity
+
+      - name: 构建
+        run: npm run build
+
+      - name: 确认三个发布产物都存在且非空
+        run: |
+          set -e
+          for f in main.js manifest.json styles.css; do
+            if [ ! -s "$f" ]; then
+              echo "::error::产物 $f 缺失或为空"
+              exit 1
+            fi
+            printf '%-14s %8s B  sha256:%s\n' "$f" "$(wc -c < "$f" | tr -d ' ')" "$(sha256sum "$f" | cut -c1-16)"
+          done
+
+      - name: 创建 release 并附上产物
+        run: |
+          set -e
+          TAG="${GITHUB_REF_NAME}"
+          # 带注释的 tag 用它自己的说明当 release notes；轻量 tag 则自动生成。
+          if [ "$(git cat-file -t "$TAG")" = "tag" ]; then
+            NOTES_FLAG="--notes-from-tag"
+          else
+            NOTES_FLAG="--generate-notes"
+          fi
+          # 三个产物必须作为独立文件上传，不要打成 zip —— Obsidian 按文件名逐个下载。
+          gh release create "$TAG" \
+            --title "$TAG" \
+            $NOTES_FLAG \
+            main.js manifest.json styles.css
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
