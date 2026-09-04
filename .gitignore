@@ -36,3 +36,6 @@ yarn-error.log*
 
 # 发布产物暂存目录
 dist/
+
+# git worktree 隔离工作区（AI agent 用，不是项目内容）
+.worktrees/
