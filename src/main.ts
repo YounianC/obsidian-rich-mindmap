@@ -1,11 +1,16 @@
-import { MarkdownView, Notice, Plugin, TFile, type WorkspaceLeaf } from "obsidian";
+import { MarkdownView, Notice, Plugin, TFile, TFolder, type WorkspaceLeaf } from "obsidian";
 import { setMindmapFlag } from "./model/collapse-state";
+import { newMindmapContent, uniqueMindmapPath } from "./model/new-file";
 import {
   DEFAULT_SETTINGS,
   MindmapSettingTab,
   type MindmapSettings,
 } from "./settings";
 import { MINDMAP_VIEW_TYPE, MindmapView } from "./view";
+
+/** 自动切换被 Obsidian 的 setViewState 重入守卫丢弃时的重试间隔与上限（见 flipToMindmap）。 */
+const FLIP_RETRY_MS = 50;
+const FLIP_MAX_ATTEMPTS = 20;
 
 export default class MindmapPlugin extends Plugin {
   override settings: MindmapSettings = { ...DEFAULT_SETTINGS };
@@ -56,19 +61,21 @@ export default class MindmapPlugin extends Plugin {
 
     this.registerEvent(
       this.app.workspace.on("file-menu", (menu, file) => {
+        if (file instanceof TFolder) {
+          menu.addItem((item) =>
+            item
+              .setTitle("新建思维导图")
+              .setIcon("git-fork")
+              .onClick(() => void this.createMindmapInFolder(file)),
+          );
+          return;
+        }
         if (!(file instanceof TFile) || file.extension !== "md") return;
         menu.addItem((item) =>
           item
             .setTitle("以思维导图打开")
             .setIcon("git-fork")
-            .onClick(() => {
-              const leaf = this.app.workspace.getLeaf(false);
-              void leaf.setViewState({
-                type: MINDMAP_VIEW_TYPE,
-                state: { file: file.path },
-                active: true,
-              });
-            }),
+            .onClick(() => this.openAsMindmap(file)),
         );
       }),
     );
@@ -93,15 +100,71 @@ export default class MindmapPlugin extends Plugin {
         if (leaf === undefined) return;
 
         this.flipping.add(file.path);
-        void leaf
-          .setViewState({
-            type: MINDMAP_VIEW_TYPE,
-            state: { file: file.path },
-            active: true,
-          })
-          .finally(() => this.flipping.delete(file.path));
+        void this.flipToMindmap(leaf, file).finally(() => this.flipping.delete(file.path));
       }),
     );
+  }
+
+  /**
+   * 把 leaf 切到导图视图，并确认切换真的生效——不生效就短间隔重试。
+   *
+   * 为什么不能只调一次 setViewState：`WorkspaceLeaf.setViewState` 有一个私有重入守卫
+   * （`this.working`），同一 leaf 上有另一次 setViewState 尚未结束时，新的调用会被
+   * **静默丢弃**——不抛错、promise 正常 resolve。从文件浏览器点开文件恰好撞上它：
+   * 点击先经 leaf 容器的 pointerdown 把侧栏 leaf 设为 activeLeaf；随后 onSelfClick
+   * 调 `openFile(file)`（不 await，其内部 setViewState 挂起在读盘上、working=true），
+   * 再同步调 `setActiveLeaf(getMostRecentLeaf())` → 防抖 0ms 后触发 file-open。此时目标
+   * leaf 仍在 working，我们的切换被丢掉；等 openFile 读完盘再触发 activeLeafEvents 时，
+   * getActiveFile 已等于 lastActiveFile，不会再有第二次 file-open。表现就是"设置开着、
+   * frontmatter 也对，从文件浏览器点开却停在源码模式"。只有目标 leaf 原先是别的视图
+   * 类型（比如另一张导图）时才碰巧能成功，因为那条路径会多触发一次 file-open。
+   * 以上均从 obsidian.asar（1.12.7）反编译核实。
+   *
+   * `working` 是私有字段，这里不读它，而是以「leaf.view 是否真的变成了导图视图」为判据。
+   * leaf 已经换了文件（用户又点了别的）就放弃，不去抢用户的操作。
+   */
+  private async flipToMindmap(leaf: WorkspaceLeaf, file: TFile): Promise<void> {
+    for (let attempt = 0; attempt < FLIP_MAX_ATTEMPTS; attempt++) {
+      const view = leaf.view;
+      if (view.getViewType() === MINDMAP_VIEW_TYPE) return;
+      if (!(view instanceof MarkdownView) || view.file?.path !== file.path) return;
+      await leaf.setViewState({
+        type: MINDMAP_VIEW_TYPE,
+        state: { file: file.path },
+        active: true,
+      });
+      if (leaf.view.getViewType() === MINDMAP_VIEW_TYPE) return;
+      await new Promise<void>((resolve) => window.setTimeout(resolve, FLIP_RETRY_MS));
+    }
+  }
+
+  /** 在当前面板用思维导图视图打开文件。 */
+  private openAsMindmap(file: TFile): Promise<void> {
+    return this.app.workspace.getLeaf(false).setViewState({
+      type: MINDMAP_VIEW_TYPE,
+      state: { file: file.path },
+      active: true,
+    });
+  }
+
+  /**
+   * 在 folder 下新建一个带 `mindmap: true` 与一级标题的文件并立即以导图视图打开。
+   * 文件名沿用 Obsidian「未命名 / 未命名 1 / …」的去重规则，见 model/new-file.ts。
+   */
+  private async createMindmapInFolder(folder: TFolder): Promise<void> {
+    const path = uniqueMindmapPath(
+      folder.path,
+      (candidate) => this.app.vault.getAbstractFileByPath(candidate) !== null,
+    );
+    const title = path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/, "");
+    let file: TFile;
+    try {
+      file = await this.app.vault.create(path, newMindmapContent(title));
+    } catch (error) {
+      new Notice(`新建思维导图失败：${String(error)}`);
+      return;
+    }
+    await this.openAsMindmap(file);
   }
 
   /**
@@ -147,7 +210,15 @@ export default class MindmapPlugin extends Plugin {
   }
 
   async loadSettings(): Promise<void> {
-    this.settings = { ...DEFAULT_SETTINGS, ...(await this.loadData()) };
+    // loadData() 返回 any；先收窄成 unknown 再逐字段校验类型，data.json 被手改坏
+    // （比如 autoOpen 写成字符串）时回落到默认值，而不是把脏值灌进 settings。
+    const raw: unknown = await this.loadData();
+    const stored: Record<string, unknown> =
+      typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
+    this.settings = {
+      autoOpen:
+        typeof stored.autoOpen === "boolean" ? stored.autoOpen : DEFAULT_SETTINGS.autoOpen,
+    };
   }
 
   async saveSettings(): Promise<void> {

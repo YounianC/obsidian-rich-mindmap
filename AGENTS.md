@@ -54,6 +54,8 @@
 - 回显抑制由基类三重保障：`onModify` 的 `saving` 标志、`loadFileInternal` 的 `i === n` 早退、`setData` 的 `this.data !== e`。不要再自己实现一套字节比对。
 - 插件**刻意不调用 `requestSave()`**，因此基类的 `dirty` 标志恒为 false、它的逐行三方合并路径是死代码。这是有意的——把序列化后的导图 Markdown 做文本合并比"磁盘内容优先"更糟。不要"修复"它。
 
+- **`WorkspaceLeaf.setViewState` 有私有重入守卫 `working`：同一 leaf 上一次 setViewState 未结束时，新调用被静默丢弃（不抛错、promise 正常 resolve）。** 从文件浏览器点开文件时，Obsidian 自己的 `openFile` 不 await、随后同步 `setActiveLeaf` 导致 `file-open` 在目标 leaf 仍 `working` 时就触发，此时在事件里调 `setViewState` 是无效的。所以 `main.ts` 的 `flipToMindmap` 切换后必须校验 `leaf.view.getViewType()` 并重试，**不要**改回"调一次就完"。
+
 保存只走 `getViewData` / `setViewData` 加 400ms 防抖。**视图自己的保存绝不能调 `vault.modify`。**（`main.ts` 的 `markAsMindmap` 用 `vault.process` 是另一回事，那是对一个可能没打开的文件做一次性 frontmatter 编辑，是正当用法。）
 
 ### 6. 事件传播是本项目最高频的缺陷类型

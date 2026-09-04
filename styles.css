@@ -352,6 +352,12 @@
   border-radius: 6px;
 }
 
+/* 拖拽浮层的隐藏态（drag.ts 用类名切换，不直接写 style.display） */
+.mm-drag-ghost.mm-hidden,
+.mm-drop-indicator.mm-hidden {
+  display: none;
+}
+
 /* ---------- 标记面板 ---------- */
 
 .mm-panel {

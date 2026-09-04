@@ -88,6 +88,24 @@ export class MindmapView extends TextFileView {
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
     this.root = el("div", "mindmap-view", this.contentEl);
+    // 视图标题栏右上角的动作按钮（与 Obsidian 自带视图的图标按钮同一位置）。
+    // 命令面板里的「切换思维导图 / 源码视图」仍然可用，这是它的鼠标入口。
+    this.addAction("file-text", "切换到源码模式", () => this.switchToSource());
+  }
+
+  /**
+   * 把当前 leaf 切回 Markdown 源码视图。未保存的编辑由基类在卸载文件时通过
+   * getViewData() 落盘（TextFileView.onUnloadFile → save），这里不需要额外 flush。
+   * 切换不会触发 file-open（文件没变），因此也不会被 main.ts 的自动打开逻辑切回来。
+   */
+  private switchToSource(): void {
+    const path = this.file?.path;
+    if (path === undefined) return;
+    void this.leaf.setViewState({
+      type: "markdown",
+      state: { file: path, mode: "source" },
+      active: true,
+    });
   }
 
   override getViewType(): string {
@@ -417,15 +435,7 @@ export class MindmapView extends TextFileView {
     const button = el("button", "mm-error-btn", wrap);
     button.type = "button";
     button.textContent = "切换到源码模式";
-    button.addEventListener("click", () => {
-      const path = this.file?.path;
-      if (path === undefined) return;
-      void this.leaf.setViewState({
-        type: "markdown",
-        state: { file: path, mode: "source" },
-        active: true,
-      });
-    });
+    button.addEventListener("click", () => this.switchToSource());
   }
 
   private createToolbarForView(): ReturnType<typeof createToolbar> {

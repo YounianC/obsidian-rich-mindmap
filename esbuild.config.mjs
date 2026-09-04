@@ -1,12 +1,12 @@
 import esbuild from "esbuild";
-import builtins from "builtin-modules";
+import { builtinModules } from "node:module";
 
 const watch = process.argv.includes("--watch");
 
 const ctx = await esbuild.context({
   entryPoints: ["src/main.ts"],
   bundle: true,
-  external: ["obsidian", "electron", ...builtins],
+  external: ["obsidian", "electron", ...builtinModules],
   format: "cjs",
   target: "es2022",
   logLevel: "info",

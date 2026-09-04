@@ -5,7 +5,7 @@ export function el<K extends keyof HTMLElementTagNameMap>(
   className?: string,
   parent?: HTMLElement,
 ): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
+  const node = createEl(tag);
   if (className !== undefined) node.className = className;
   if (parent !== undefined) parent.appendChild(node);
   return node;
@@ -19,7 +19,7 @@ export function svgEl<K extends keyof SVGElementTagNameMap>(
   const node = document.createElementNS(SVG_NS, tag);
   if (className !== undefined) node.setAttribute("class", className);
   if (parent !== undefined) parent.appendChild(node);
-  return node as SVGElementTagNameMap[K];
+  return node;
 }
 
 export function clear(node: Element): void {

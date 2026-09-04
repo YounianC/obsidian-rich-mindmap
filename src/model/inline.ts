@@ -173,10 +173,10 @@ function parseSpan(
       return finish({ tokens, end: pos + closer.length, closed: true });
     }
 
-    const ch = text[pos] as string;
+    const ch = text[pos];
 
     // 反斜杠转义。
-    if (ch === "\\" && pos + 1 < len && ESCAPABLE.has(text[pos + 1] as string)) {
+    if (ch === "\\" && pos + 1 < len && ESCAPABLE.has(text[pos + 1])) {
       buf += text[pos + 1];
       pos += 2;
       continue;

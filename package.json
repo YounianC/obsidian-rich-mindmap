@@ -19,7 +19,6 @@
   "private": true,
   "devDependencies": {
     "@types/node": "^20.19.43",
-    "builtin-modules": "^5.3.0",
     "esbuild": "^0.28.2",
     "fast-check": "^4.9.0",
     "obsidian": "^1.13.1",

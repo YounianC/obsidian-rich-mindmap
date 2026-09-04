@@ -173,7 +173,8 @@ Selecting a node brings up a floating toolbar next to it: bold / italic / strike
 
 ## Commands
 
-- **Toggle mindmap / source view**
+- **New mindmap** (folder context menu) — creates `未命名思维导图.md` in that folder (auto-numbered `未命名思维导图 1.md`, `2`, … if taken), containing a `mindmap: true` frontmatter block plus an H1 matching the file name, then opens it in mindmap view in the current pane. The H1 is there so the root node can be renamed directly in the map; renaming the file afterwards does not update the root text.
+- **Toggle mindmap / source view** — the mindmap view also has a "switch to source" icon button in its header (top right) that does the same thing. Switching back to source manually is not undone by auto-open; the file only re-enters mindmap view the next time it is opened.
 - **Mark as mindmap (write frontmatter)** — writes `mindmap: true` so the file opens in mindmap view from then on (can be turned off in settings). On a file with no frontmatter it creates one. This command also normalizes the whole file's line endings to `LF` (normalization 3 above); visible content is unaffected.
 
 ## Development

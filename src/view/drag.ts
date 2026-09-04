@@ -17,6 +17,9 @@ export interface DragHost {
 
 const DRAG_THRESHOLD_PX = 4;
 const EDGE_RATIO = 0.3;
+/** 浮层的隐藏态用类名切换（styles.css 里 `.mm-hidden { display: none }`），
+ *  不直接写 `style.display`——Obsidian 插件审核规则 no-static-styles-assignment。 */
+const HIDDEN_CLASS = "mm-hidden";
 
 /** 指针在目标节点内的纵向比例决定落点区域。 */
 export function zoneFromOffset(offsetY: number, height: number): DropZone {
@@ -27,24 +30,25 @@ export function zoneFromOffset(offsetY: number, height: number): DropZone {
   return "child";
 }
 
-/** 隐藏浮层再做命中测试，否则总是命中自己；用 try/finally 保证一定会恢复显示。 */
+/** 隐藏浮层再做命中测试，否则总是命中自己；用 try/finally 保证一定会恢复原状
+ *  （indicator 在进入前可能本来就是隐藏的，要恢复成进入前的状态而不是一律显示）。 */
 function nodeElAt(
   x: number,
   y: number,
   ghost: HTMLElement | null,
   indicator: HTMLElement | null,
 ): HTMLElement | null {
-  const ghostDisplay = ghost?.style.display ?? "";
-  const indicatorDisplay = indicator?.style.display ?? "";
+  const ghostHidden = ghost?.hasClass(HIDDEN_CLASS) ?? false;
+  const indicatorHidden = indicator?.hasClass(HIDDEN_CLASS) ?? false;
   try {
-    if (ghost !== null) ghost.style.display = "none";
-    if (indicator !== null) indicator.style.display = "none";
+    ghost?.addClass(HIDDEN_CLASS);
+    indicator?.addClass(HIDDEN_CLASS);
     const hit = document.elementFromPoint(x, y);
     if (!(hit instanceof HTMLElement)) return null;
     return hit.closest<HTMLElement>(".mm-node");
   } finally {
-    if (ghost !== null) ghost.style.display = ghostDisplay;
-    if (indicator !== null) indicator.style.display = indicatorDisplay;
+    ghost?.toggleClass(HIDDEN_CLASS, ghostHidden);
+    indicator?.toggleClass(HIDDEN_CLASS, indicatorHidden);
   }
 }
 
@@ -143,15 +147,10 @@ export function attachDrag(host: DragHost): { cancel(): void } {
       }
       host.root.addClass("mm-dragging");
 
-      const ghost = document.createElement("div");
-      ghost.className = "mm-drag-ghost mm-no-pan";
-      host.root.appendChild(ghost);
-      state.ghost = ghost;
-
-      const indicator = document.createElement("div");
-      indicator.className = "mm-drop-indicator mm-no-pan";
-      host.root.appendChild(indicator);
-      state.indicator = indicator;
+      state.ghost = host.root.createDiv({ cls: ["mm-drag-ghost", "mm-no-pan"] });
+      state.indicator = host.root.createDiv({
+        cls: ["mm-drop-indicator", "mm-no-pan"],
+      });
     }
 
     // 拖拽已激活：阻止原生的文本选中/拖拽手势与自定义拖拽并行，避免松手后
@@ -170,7 +169,7 @@ export function attachDrag(host: DragHost): { cancel(): void } {
     const hitId = hit?.dataset.id;
     if (hit === null || hitId === undefined || hitId === state.sourceId) {
       state.target = null;
-      if (state.indicator !== null) state.indicator.style.display = "none";
+      state.indicator?.addClass(HIDDEN_CLASS);
       return;
     }
 
@@ -180,6 +179,8 @@ export function attachDrag(host: DragHost): { cancel(): void } {
 
     if (state.indicator !== null) {
       const indicator = state.indicator;
+      // 上一帧可能因为悬停在源节点/空白处而被隐藏，命中新目标时要重新显示。
+      indicator.removeClass(HIDDEN_CLASS);
       indicator.dataset.zone = zone;
       indicator.style.left = `${hitRect.left - rootRect.left}px`;
       indicator.style.width = `${hitRect.width}px`;
