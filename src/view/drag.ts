@@ -60,7 +60,7 @@ interface DragState {
 }
 
 /** 绑定节点拖拽。超过阈值才开始拖，否则交给点击逻辑。 */
-export function attachDrag(host: DragHost): void {
+export function attachDrag(host: DragHost): { cancel(): void } {
   let state: DragState | null = null;
 
   // 收尾必须走这一条路径：pointerup、pointercancel、pointermove 里的
@@ -201,4 +201,15 @@ export function attachDrag(host: DragHost): void {
   });
 
   host.on("pointercancel", teardown);
+
+  return {
+    // 供调用方在「进行中的拖拽引用的节点 id 即将全部失效」时主动中止——
+    // 例如外部改动文件后要整体重新解析：拖拽状态里的 sourceId/target.targetId
+    // 都是旧文档里的 id，reparse 后同名 id 可能指向完全不同的节点（parser.ts
+    // 按前序遍历顺序重新分配 n0/n1/n2…），松手时的 onDrop 会照常用旧 id 去操作
+    // 新文档，可能静默移动一个不相关的节点。调用 cancel() 复用 teardown()，
+    // 把 state 置回 null，之后即便还收到这次手势剩余的 pointerup/pointercancel，
+    // 也会被上面两个 handler 的 `state === null` 早退挡掉，不会再触发 onDrop。
+    cancel: teardown,
+  };
 }

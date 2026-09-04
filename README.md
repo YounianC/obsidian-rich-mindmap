@@ -79,7 +79,7 @@ mindmap: true
 ## 命令
 
 - **切换思维导图 / 源码视图**
-- **标记为思维导图（写入 frontmatter）** —— 写入 `mindmap: true`，之后打开该文件自动进入导图视图（可在设置中关闭）；对没有 frontmatter 的文件执行会新建一个 frontmatter 块，正文不受影响。
+- **标记为思维导图（写入 frontmatter）** —— 写入 `mindmap: true`，之后打开该文件自动进入导图视图（可在设置中关闭）；对没有 frontmatter 的文件执行会新建一个 frontmatter 块。执行这条命令会把整个文件的换行符统一成 `LF`（属于上面「写回归一化」的第三条），正文的可见内容不受影响。
 
 ## 开发
 

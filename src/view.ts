@@ -80,11 +80,16 @@ export class MindmapView extends TextFileView {
   private inputPopover: { close(): void } | null = null;
   /** marksPanel/inputPopover 当前绑定的节点 id，见 closeStaleOverlays()。 */
   private overlayOwnerId: string | null = null;
+  /** attachDrag() 返回的取消句柄，供 reloadFromDisk() 中止一次跨文档失效的拖拽。 */
+  private dragControl: { cancel(): void } | null = null;
   /** parse() 抛异常时的错误信息；非 null 时 render() 走错误态分支，doc 为 null。 */
   private parseError: string | null = null;
   /** 本视图最近一次通过 getViewData() 写出的文件内容，用于在 vault "modify"
    *  回调里区分「这是我们自己的保存触发的回声」还是「文件在外部被真的改动了」。 */
   private lastWritten: string | null = null;
+  /** reloadFromDisk() 的单调递增世代号：两次外部修改可能各触发一次调用，
+   *  两次 vault.read() 谁先 resolve 不保证等于事件谁先触发，见该方法内的用法。 */
+  private reloadSeq = 0;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -193,6 +198,9 @@ export class MindmapView extends TextFileView {
    * 与磁盘一致）这两种边界情况都成立。
    */
   private async reloadFromDisk(file: TFile): Promise<void> {
+    // 世代号：见下方 await 之后的比较。必须在这里（任何 await 之前）取号，
+    // 保证两次几乎同时触发的调用各自拿到不同的、按调用先后单调递增的号码。
+    const seq = ++this.reloadSeq;
     // vault.read() 是一次真正的磁盘 I/O，之后才能判断这是不是自己的回声；
     // 但等待期间事件循环仍会正常跑定时器——如果本地正好有一个即将在这几毫秒
     // 内触发的防抖保存，它会在我们判断出「这是外部修改」之前抢先把内存里旧的
@@ -204,6 +212,18 @@ export class MindmapView extends TextFileView {
     if (wasPending) this.clearSaveTimer();
 
     const content = await this.app.vault.read(file);
+    if (seq !== this.reloadSeq) {
+      // 等待读盘期间又有更新的一次 "modify" 事件进来、开始了自己的
+      // reloadFromDisk（更大的 seq）。两次 vault.read() 谁先 resolve 不保证
+      // 等于两次外部写入谁先发生——如果这次（更旧的调用）反而后 resolve，直接
+      // 套用它读到的内容会让画布从更新的外部内容"倒退"回旧内容，且这份倒退
+      // 不会被任何东西发现：lastWritten 只在 getViewData() 里更新，不会因为
+      // 一次读盘而改变，一直到下一次保存才会暴露出画布内容和磁盘不一致，
+      // 那时本地保存已经把更新的外部内容覆盖掉了。让更新的调用独占生效，
+      // 本次直接放弃——不动 doc/camera/selectedId，任何东西都不写回。
+      if (wasPending) this.scheduleSave();
+      return;
+    }
     if (content === this.lastWritten) {
       if (wasPending) this.scheduleSave();
       return;
@@ -235,6 +255,13 @@ export class MindmapView extends TextFileView {
     this.inputPopover?.close();
     this.inputPopover = null;
     this.overlayOwnerId = null;
+    // 进行中的拖拽同理必须一并中止：它内部记着的 sourceId/target.targetId 都是
+    // 旧文档里的 id，reparse 后同名 id 很可能指向完全不同的节点（parser.ts 按
+    // 前序遍历顺序重新分配 n0/n1/n2…，插入/删除一个节点就会让后面的 id 整体错位）。
+    // 不取消的话，用户此刻仍按着的手指松开时会照常触发 onDrop，把新文档里恰好
+    // 顶替了那个 id 的节点移动到一个也早已不是原意的目标位置——这条路径完全
+    // 静默，会在下一次 400ms 防抖内写进磁盘。
+    this.dragControl?.cancel();
 
     if (wasPending || hadUnsavedEdit) {
       new Notice("文件已在外部修改，以磁盘内容为准。");
@@ -290,7 +317,19 @@ export class MindmapView extends TextFileView {
     this.inputPopover?.close();
     this.inputPopover = null;
     this.overlayOwnerId = null;
+    // 同一 leaf 切到另一个文件时，拖拽状态里记的 id 属于即将离开的旧文档，
+    // 理由与 reloadFromDisk() 里取消拖拽完全一致：一旦文档整体换掉，任何还在
+    // 途中的手势捕获的 id 都不再有意义，必须一并中止，不能留着等 pointerup
+    // 时用旧 id 操作新文档。
+    this.dragControl?.cancel();
     clear(this.root);
+    // 这份 lastWritten 记的是"上一个文件"最近一次写出的字节；Obsidian 会在同一个
+    // leaf 上复用这个视图实例加载下一个文件，如果不重置，新文件在自己第一次保存
+    // 之前，一次真外部修改只要字节恰好等于旧文件最后写出的内容（例如两份用同一
+    // 模板新建的笔记），就会被 reloadFromDisk() 的自写检测误判成回声而悄悄丢弃，
+    // 之后本地保存还可能把它覆盖掉。清空后回到"首次加载、lastWritten 为 null"
+    // 那条已验证安全的路径。
+    this.lastWritten = null;
   }
 
   /**
@@ -407,7 +446,13 @@ export class MindmapView extends TextFileView {
 
   /** parse() 抛异常时的错误提示卡片，附「切换到源码模式」出口。 */
   private renderError(message: string): void {
-    const wrap = el("div", "mm-error", this.root);
+    // mm-no-pan：画布上「界面元素」的通用标记（见 attachCameraEvents 与
+    // interaction.ts 的 pointerdown 守卫）。这张卡片最常见的出现场景是"一个
+    // 之前解析成功过的文件被外部改坏了"——也就是说 attachCameraEvents 与
+    // attachInteractionLayer 这两组画布级监听器（平移手势、点击取消选中）
+    // 早已挂好。不加这个类的话，在卡片里点击、选文字或拖拽都会被当成在空白
+    // 画布上操作：触发平移（.mm-panning、光标变成 grabbing）和取消选中。
+    const wrap = el("div", "mm-error mm-no-pan", this.root);
     const title = el("div", "mm-error-title", wrap);
     title.textContent = "无法解析为思维导图";
     const detail = el("div", "mm-error-detail", wrap);
@@ -570,7 +615,7 @@ export class MindmapView extends TextFileView {
   }
 
   private attachDragLayer(): void {
-    attachDrag({
+    this.dragControl = attachDrag({
       root: this.root,
       on: (type, handler) => this.registerDomEvent(this.root, type, handler),
       isEditing: () => this.editingId !== null,
