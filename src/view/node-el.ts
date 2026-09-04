@@ -8,6 +8,11 @@ import { el, svgEl, textNode } from "./dom";
  *  "obsidian"、不接触 `app`——链接跳转的实际动作留给调用方注入。 */
 export type OnOpenLink = (target: string, event: MouseEvent) => void;
 
+/** 点击折叠角标展开该节点的回调，由 view.ts 提供并接到 `toggleCollapse` 意图
+ *  （见 buildNodeEl 里角标的 click 处理器，以及 AGENTS.md 第 6 条事件传播
+ *  约束）。与 OnOpenLink 一样，node-el.ts 本身不 import "obsidian"。 */
+export type OnToggleCollapse = (id: string) => void;
+
 /** branch 序号 → CSS 类名后缀（1–7 循环）。 */
 export function branchClass(branch: number): string {
   return `mm-branch-${(((branch % 7) + 7) % 7) + 1}`;
@@ -187,6 +192,7 @@ export function buildNodeEl(
   branch: number,
   isRoot: boolean,
   onOpenLink?: OnOpenLink,
+  onToggleCollapse?: OnToggleCollapse,
 ): HTMLElement {
   const classes = ["mm-node", depthClass(depth), branchClass(branch)];
   if (isRoot) classes.push("mm-root");
@@ -207,9 +213,29 @@ export function buildNodeEl(
   }
 
   if (node.collapsed && node.children.length > 0) {
+    // `▸ N` + 胶囊形（见 styles.css 的 .mm-collapse-badge 注释）替代此前的纯
+    // 数字圆点——用户反馈那和优先级角标（同样是圆点+数字）分不清。
     const badge = el("span", "mm-collapse-badge", element);
-    badge.textContent = String(node.children.length);
-    badge.title = `已折叠 ${node.children.length} 个子节点`;
+    badge.textContent = `▸ ${node.children.length}`;
+    badge.title = `已折叠 ${node.children.length} 个子节点，点击展开`;
+    // 事件传播（AGENTS.md 第 6 条）：不拦 pointerdown——平移守卫本就在
+    // .mm-node 上短路（不影响画布），选中守卫选中这个节点是期望行为，拖拽
+    // 要移动 4px 才激活，单次点击够不到那个阈值。但 click 是我们真正触发
+    // 展开的地方，且必须挡住它继续冒泡到 this.root——虽然当前 this.root 上
+    // 没有挂 click 监听器，这里仍然显式 stopPropagation，作为"角标上的点击
+    // 到此为止、不再向上传播"的契约，避免以后有人在 root 加 click 监听时
+    // 意外收到这个事件。dblclick 必须 stopPropagation：this.root 挂着
+    // dblclick -> beginEdit，两次快速点击角标会先后触发一次 click（展开、
+    // 角标随之被移除并重渲染）和一次 dblclick；不挡住 dblclick 的话它会
+    // 冒泡到画布，画布用 closest(".mm-node") 找到同一个节点并进入就地编辑，
+    // 把"点一下展开"变成"点两下意外进编辑态"。
+    badge.addEventListener("click", (event) => {
+      event.stopPropagation();
+      onToggleCollapse?.(node.id);
+    });
+    badge.addEventListener("dblclick", (event) => {
+      event.stopPropagation();
+    });
   }
 
   return element;

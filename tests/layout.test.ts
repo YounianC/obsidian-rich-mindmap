@@ -131,7 +131,7 @@ describe("layout 连线", () => {
     ).toEqual(["n0->n1", "n0->n4", "n1->n2", "n1->n3"]);
   });
 
-  it("路径从父节点右下角连到子节点左下角", () => {
+  it("路径从父节点右下角经曲线连到子节点左下角，再沿子节点底边画到其右下角（下划线）", () => {
     const root = tree();
     const result = layout(root, sizes(root), DEFAULT_LAYOUT_OPTIONS);
     const edge = result.edges.find((e) => e.toId === "n2")!;
@@ -142,7 +142,27 @@ describe("layout 连线", () => {
     const x1 = child.x;
     const y1 = child.y + child.height;
     const mx = (x0 + x1) / 2;
-    expect(edge.path).toBe(`M ${x0} ${y0} C ${mx} ${y0} ${mx} ${y1} ${x1} ${y1}`);
+    expect(edge.path).toBe(
+      `M ${x0} ${y0} C ${mx} ${y0} ${mx} ${y1} ${x1} ${y1} H ${x1 + child.width}`,
+    );
+  });
+
+  it("每条边追加的下划线段精确落在子节点右下角（trailing H 坐标 = to.x + to.width）", () => {
+    const root = tree();
+    const result = layout(root, sizes(root), DEFAULT_LAYOUT_OPTIONS);
+    for (const edge of result.edges) {
+      const to = result.rects.get(edge.toId)!;
+      const match = edge.path.match(/H (-?[\d.]+)$/);
+      expect(match, `edge ${edge.fromId}->${edge.toId} 缺少 H 段: ${edge.path}`).not.toBeNull();
+      const trailingX = Number(match![1]);
+      expect(trailingX).toBe(to.x + to.width);
+    }
+  });
+
+  it("根节点没有入边，因此不会为它画出下划线段", () => {
+    const root = tree();
+    const result = layout(root, sizes(root), DEFAULT_LAYOUT_OPTIONS);
+    expect(result.edges.some((e) => e.toId === root.id)).toBe(false);
   });
 
   it("branch 为所属根分支序号，depth 为子节点深度", () => {

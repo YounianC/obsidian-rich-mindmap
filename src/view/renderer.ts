@@ -8,7 +8,7 @@ import {
   type Size,
 } from "./layout";
 import { measureAll } from "./measure";
-import { branchClass, buildNodeEl, type OnOpenLink } from "./node-el";
+import { branchClass, buildNodeEl, type OnOpenLink, type OnToggleCollapse } from "./node-el";
 
 export interface RenderLayers {
   measureHost: HTMLElement;
@@ -62,12 +62,16 @@ export function renderMindmap(
   root: MindNode,
   selectedId: string | null,
   onOpenLink?: OnOpenLink,
+  onToggleCollapse?: OnToggleCollapse,
 ): LayoutResult {
   const placements = collectPlacements(root);
 
   const elements = new Map<string, HTMLElement>();
   for (const { node, depth, branch } of placements) {
-    elements.set(node.id, buildNodeEl(node, depth, branch, node === root, onOpenLink));
+    elements.set(
+      node.id,
+      buildNodeEl(node, depth, branch, node === root, onOpenLink, onToggleCollapse),
+    );
   }
 
   const sizes: Map<string, Size> = measureAll(elements, layers.measureHost);

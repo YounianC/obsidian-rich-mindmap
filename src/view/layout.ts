@@ -87,13 +87,30 @@ function computeSpans(
   return spans;
 }
 
+/**
+ * 边的路径同时承担子节点的下划线：曲线到达 `(x1, y1)`（子节点左下角）后，
+ * 再追加一段沿子节点底边的水平线段 `H ${x1 + to.width}`，画到子节点右下角。
+ * 这样父节点下划线 → 连接曲线 → 子节点下划线是同一条连续描边，不再是"CSS
+ * `border-bottom` + SVG 曲线"两套独立几何体的拼接（后者在深层节点上因为
+ * `border-bottom` 宽度固定 2px 而 SVG 描边随深度变细，重叠不足 1px，产生
+ * 可见的错位台阶，见本文件改动所在提交的说明）。
+ *
+ * 拼接处天然重合，不需要额外对齐：父节点自己的下划线由*它自己*的入边（另一次
+ * `bezier` 调用，此处 from/to 分别是"父节点的父节点"与"父节点"）画出，那条
+ * 线段的终点正是 `(from.x + from.width, from.y + from.height)`——与这里的
+ * `x0, y0`（当前这条边的起点，即父节点右下角）逐坐标相等。两段路径落在
+ * 同一个几何点上，浏览器渲染出来就是无缝的一笔。
+ *
+ * 根节点没有入边（它不是任何 `collectEdges` 调用里的 `child`），所以根节点
+ * 永远不会被画出下划线，与"根节点是实心方框、不带下划线"的设计保持不变。
+ */
 function bezier(from: Rect, to: Rect): string {
   const x0 = from.x + from.width;
   const y0 = from.y + from.height;
   const x1 = to.x;
   const y1 = to.y + to.height;
   const mx = (x0 + x1) / 2;
-  return `M ${x0} ${y0} C ${mx} ${y0} ${mx} ${y1} ${x1} ${y1}`;
+  return `M ${x0} ${y0} C ${mx} ${y0} ${mx} ${y1} ${x1} ${y1} H ${x1 + to.width}`;
 }
 
 /**

@@ -99,6 +99,12 @@ H1 行没有行内标记语法，`serialize` 刻意不写 `root.marks`。所以 
 
 链接元素会 `stopPropagation()` 挡掉 `this.root` 上的平移/选中/拖拽三个 `pointerdown` 监听（否则点链接会先触发一次节点拖拽/选中）；wikilink 的跳转动作由 `view.ts` 通过可选回调 `onOpenLink` 注入（`this.app.workspace.openLinkText(...)`），`node-el.ts` 本身不 import `"obsidian"`、不碰 `app`。wikilink 元素带 `class="internal-link"` `data-href`，这是 Obsidian 渲染 wikilink 的约定属性，但 Obsidian 自己的全局点击处理只在它自己调用过 `registerDomEvents()` 的 `markdown-preview-view`/编辑器/嵌入容器内生效（反编译 `obsidian.asar` 确认过），`.mm-node` 不在那些容器下，不会被接管，因此不存在"点一次链接打开两次笔记"的问题。
 
+### 12. 节点下划线是 SVG 边的一部分，不是 CSS border
+
+非根节点底部那条随分支变色的线，画在 `src/view/layout.ts` 的 `bezier()` 里：连接父子节点的贝塞尔曲线到达子节点左下角后，再追加一段 `H` 水平线段画到子节点右下角，充当子节点的下划线。父节点自己的下划线由*它自己*的入边画出，终点正是这条曲线的起点（父节点右下角），两段路径在同一个几何点上重合，渲染出来是一笔连续的描边。
+
+`styles.css` 里**不再有** `.mm-node:not(.mm-root) { border-bottom: ... }` 这条规则，`--mm-line` 自定义属性还在（折叠角标背景用）。这是刻意的：CSS border 的粗细固定不随深度变化，而 SVG 描边的 `stroke-width` 随深度变细（`strokeWidth(depth)`），两套独立几何体的中心线对不齐，在深层节点上会出现肉眼可见的台阶——这正是本条约束要防的真实缺陷（复核截图里能看到）。**如果要重新加回 CSS 下划线，会原样复现这个缺陷**；改下划线粗细/颜色应该去改 `bezier()` 产出的路径和调用方设置的 `stroke-width`/`stroke` 属性，不要加 border。
+
 ## 门禁
 
 改完必须四条全绿：

@@ -102,11 +102,11 @@
   background: var(--background-modifier-hover);
 }
 
-/* 非根节点的下划线，颜色随分支 */
-.mm-node:not(.mm-root) {
-  border-bottom: 2px solid var(--mm-line, var(--text-faint));
-}
-
+/* 非根节点的下划线不再是 CSS border——它是入边 SVG 路径的一部分（见
+ * src/view/layout.ts 的 bezier()），这样下划线和连接曲线是同一条连续描边，
+ * 不会在节点边界处出现拼接台阶。这里只保留 --mm-line 自定义属性，折叠角标的
+ * 背景色（.mm-collapse-badge）还在用它。**不要**在这里加回 border-bottom，
+ * 那会重新制造两套独立几何体拼接的缺陷。 */
 .mm-node.mm-branch-1 { --mm-line: var(--mm-branch-1); }
 .mm-node.mm-branch-2 { --mm-line: var(--mm-branch-2); }
 .mm-node.mm-branch-3 { --mm-line: var(--mm-branch-3); }
@@ -156,17 +156,27 @@
   text-decoration: underline;
 }
 
+/* 折叠角标：`▸ N` 文案 + 明显的胶囊形（两端半圆、非等宽），与优先级角标的
+ * 正圆（.mm-priority，18×18 + border-radius: 50%）在形状上区分开，避免用户
+ * 把折叠状态误认成又一个优先级标记。可点击展开，见 node-el.ts 的
+ * onToggleCollapse。 */
 .mm-collapse-badge {
   flex: 0 0 auto;
-  min-width: 18px;
-  padding: 0 5px;
+  height: 18px;
+  padding: 0 7px;
   color: var(--text-on-accent);
   font-size: 11px;
   font-weight: 600;
   line-height: 18px;
   text-align: center;
+  white-space: nowrap;
   background: var(--mm-line, var(--text-muted));
   border-radius: 9px;
+  cursor: pointer;
+}
+
+.mm-collapse-badge:hover {
+  filter: brightness(1.1);
 }
 
 /* ---------- 标记 ---------- */

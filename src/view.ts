@@ -386,6 +386,7 @@ export class MindmapView extends TextFileView {
       this.doc.root,
       this.selectedId,
       (target, event) => this.openLink(target, event),
+      (id) => this.handleIntent({ kind: "toggleCollapse", id }),
     );
     this.applyCamera();
     this.refreshSelectionClasses();
