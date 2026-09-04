@@ -44,7 +44,10 @@ function nodeElAt(
     ghost?.addClass(HIDDEN_CLASS);
     indicator?.addClass(HIDDEN_CLASS);
     const hit = document.elementFromPoint(x, y);
-    if (!(hit instanceof HTMLElement)) return null;
+    // Element 而不是 HTMLElement：命中点可能落在节点的进度/旗帜角标那段内联
+    // SVG 上（同 interaction.ts 的说明），收窄成 HTMLElement 会让这些位置被判为
+    // 「不在任何节点上」，拖到角标上方时落点指示器会莫名消失。
+    if (!(hit instanceof Element)) return null;
     return hit.closest<HTMLElement>(".mm-node");
   } finally {
     ghost?.toggleClass(HIDDEN_CLASS, ghostHidden);
@@ -97,7 +100,9 @@ export function attachDrag(host: DragHost): { cancel(): void } {
 
     if (host.isEditing() || event.button !== 0) return;
     const target = event.target;
-    if (!(target instanceof HTMLElement)) return;
+    // 同上：按在节点的进度/旗帜角标（内联 SVG）上时 target 是 SVGElement，
+    // 收窄成 HTMLElement 会让这块区域无法起拖。
+    if (!(target instanceof Element)) return;
 
     const nodeEl = target.closest<HTMLElement>(".mm-node");
     const id = nodeEl?.dataset.id;

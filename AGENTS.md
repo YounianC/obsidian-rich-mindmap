@@ -72,6 +72,8 @@
 
 已经带上的：`.mm-controls`、`.mm-toolbar`、`.mm-style-menu`、`.mm-panel`、`.mm-input-popover`、`.mm-error`、拖拽的 ghost 与落点指示器。新增浮层时加上它即可，**不要**回去改成枚举类名列表。
 
+**做 `closest()` 之前的类型守卫必须是 `instanceof Element`，不是 `instanceof HTMLElement`。** 本项目自己画的角标（进度、旗帜、节点连线）是内联 SVG，点在图形上时 `event.target` / `elementFromPoint()` 的返回值是 `SVGElement`——它有 `closest()`，但不是 `HTMLElement`。按 `HTMLElement` 收窄会让守卫整个失效：曾因此使标记面板的进度、旗帜两行完全点不动（优先级那行的角标是 `span`，所以只有它能用）。失效路径是选中守卫放行 → `nodeIdFrom()` 同样返回 null → 被当成「点在空白画布上」而清空选中 → `syncToolbar` → `closeStaleOverlays()` 在 `pointerdown` 阶段就把面板摘掉，按钮上的 `click` 根本不会派发。工具栏的 lucide 图标同为 SVG 却没暴露这个问题，是因为 Obsidian 自带 `.svg-icon { pointer-events: none }` 让 target 回落到了 `button`——不要据此以为 SVG target 不会发生。
+
 ### 8. 根节点永不携带标记
 
 H1 行没有行内标记语法，`serialize` 刻意不写 `root.marks`。所以 `setMarks` / `toggleMark` 对根 id 是 no-op，`commitText` 对根节点跳过 `parseMarks` 直接存原文。如果在别处给根节点设了标记，数据会静默丢失。工具栏的「标记」按钮在选中根节点时是禁用的。

@@ -20,8 +20,14 @@ export interface InteractionHost {
   isEditing(): boolean;
 }
 
+/**
+ * `Element` 而不是 `HTMLElement`：节点里的进度/旗帜角标（见 node-el.ts 的
+ * buildProgressBadge/buildFlagBadge）是内联 SVG，点在图形上时 event.target
+ * 是 SVGElement——它不是 HTMLElement，但同样有 closest()。按 HTMLElement 收窄
+ * 会让「点节点角标」被当成「点空白画布」，见下面 pointerdown 守卫处的说明。
+ */
 function nodeIdFrom(target: EventTarget | null): string | null {
-  if (!(target instanceof HTMLElement)) return null;
+  if (!(target instanceof Element)) return null;
   return target.closest<HTMLElement>(".mm-node")?.dataset.id ?? null;
 }
 
@@ -43,8 +49,14 @@ export function attachInteractions(host: InteractionHost): void {
     // nodeIdFrom 返回 null 时的行为——那本是「点在空白画布上」的取消选中语义，
     // 但界面元素同样不在 .mm-node 内，若不排除，点面板里的选项或工具栏按钮都会
     // 先把当前选中节点清空，而这些交互恰恰是针对被选中节点发起的。
+    // 类型必须是 Element 而不是 HTMLElement：标记面板里进度、旗帜两行的角标是
+    // 内联 SVG（优先级那行是 span），点在图形上时 event.target 是 SVGElement，
+    // 按 HTMLElement 收窄会让这条守卫整个失效——事件落到下面的 nodeIdFrom 得到
+    // null，被当成「点在空白画布上」而清空选中，进而 syncToolbar →
+    // closeStaleOverlays 在 pointerdown 阶段就把面板摘掉，按钮上的 click 永远
+    // 不会派发。表现是「优先级能点，进度和旗帜点了没反应」。
     const target = event.target;
-    if (target instanceof HTMLElement && target.closest(".mm-no-pan") !== null) {
+    if (target instanceof Element && target.closest(".mm-no-pan") !== null) {
       return;
     }
     const id = nodeIdFrom(event.target);
