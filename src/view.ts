@@ -381,7 +381,12 @@ export class MindmapView extends TextFileView {
         this.eventsAttached = true;
       }
     }
-    this.lastLayout = renderMindmap(this.layers, this.doc.root, this.selectedId);
+    this.lastLayout = renderMindmap(
+      this.layers,
+      this.doc.root,
+      this.selectedId,
+      (target, event) => this.openLink(target, event),
+    );
     this.applyCamera();
     this.refreshSelectionClasses();
     this.syncToolbar();
@@ -496,6 +501,17 @@ export class MindmapView extends TextFileView {
         this.inputPopover = null;
       },
     });
+  }
+
+  /** 节点里渲染出的 wikilink 被点击时调用。node-el.ts 刻意不 import "obsidian"，
+   *  不接触 `app`，跳转动作由这里注入。openLinkText 的第二个参数是「当前文件的
+   *  路径」，用于解析相对链接与未指定 vault 时的兜底解析；`this.file` 在文档
+   *  解析失败态也可能是 null（见 setViewData 的 parseError 分支），此时不会有
+   *  任何链接被渲染出来，但保底仍传空字符串而不是抛错。 */
+  private openLink(target: string, event: MouseEvent): void {
+    // Cmd/Ctrl+点击在新标签页打开，与 Obsidian 原生渲染的 wikilink 行为一致。
+    const newLeaf = event.metaKey || event.ctrlKey;
+    void this.app.workspace.openLinkText(target, this.file?.path ?? "", newLeaf);
   }
 
   /**

@@ -15,7 +15,7 @@
 
 `src/model/**` 加 `src/view/layout.ts`、`src/view/camera.ts` 不得 `import obsidian`，不得出现 `document` / `window` / `HTMLElement`。
 
-`npm run check:purity` 强制校验（覆盖范围写在 `scripts/check-purity.mjs` 的 `PURE_DIRS` / `PURE_FILES`）。这条边界是整个测试策略的地基：纯函数层有 194 个单测，视图层一个自动化测试都没有。
+`npm run check:purity` 强制校验（覆盖范围写在 `scripts/check-purity.mjs` 的 `PURE_DIRS` / `PURE_FILES`）。这条边界是整个测试策略的地基：纯函数层有 232 个单测，视图层一个自动化测试都没有。
 
 ### 2. 只允许五条写回归一化
 
@@ -87,13 +87,23 @@ H1 行没有行内标记语法，`serialize` 刻意不写 `root.marks`。所以 
 - TS 里不写颜色字面量；CSS 颜色取自 Obsidian 变量或本插件的 `--mm-*` 调色板（只有调色板的**定义**可以是字面量）。阴影用 `var(--shadow-s)`。
 - 进度值原样保留，永不改写成档位代表值。面板的高亮判断按 `progressStage()` 比档位，点击已生效项时传节点的**精确当前值**让 `toggleMark` 的相等判断命中从而清除。
 
+### 11. 节点文字的行内 Markdown 渲染
+
+节点文字不是纯文本插进 DOM 的：`src/model/inline.ts` 是一个纯函数 tokenizer（`parseInline`），把文字解析成 `strong`/`em`/`del`/`code`/`wikilink`/`link`/`text` 组成的 token 树；`src/view/node-el.ts` 把 token 树 programmatic 地转成 DOM（`createElement` + `textContent`，逐节点拼），**永远不用 `innerHTML`**——节点文字来自用户的笔记文件，这样注入在结构上不可能发生，不依赖任何转义逻辑。有意不用 `MarkdownRenderer.render()`：那是异步 API，会打乱这个插件同步的测量 → 布局 → 定位管线（见 `src/view/renderer.ts`），也会扰动 `eventsAttached`/`needsFit`/`ResizeObserver` 这套生命周期。
+
+支持的子集：`**bold**`、`*italic*`（只认 `*`，不认 `_`——避免 `font_size`、`my_var` 这类词内下划线被误判成斜体）、`~~strike~~`、`` `code` ``（叶子节点，内部不再递归解析）、`[[page]]` / `[[page|alias]]`、`[text](url)`，以及 `\* \_ \~ \` \[ \\` 六个反斜杠转义。未闭合/畸形的标记一律回退成字面文本，不抛异常、不丢字符。故意不支持：`#tag` 渲染（文字仍然原样保留，只是不在导图上变成链接）、图片、HTML、任何块级语法。
+
+**编辑路径必须切回原文，绝不能从渲染出的 DOM 读回文字**：一旦 `.mm-text` 里塞进了 `<strong>`/`<a>` 这些子元素，`textContent` 读回来的是去掉了 markup 的纯文字——如果编辑态直接复用这份 DOM，每次编辑都会把用户的 `**`/`*`/`~~`/`[[]]` 静默吃掉。`interaction.ts` 的 `startInlineEdit(nodeEl, initial, ...)` 在设置 `contentEditable = "true"`、聚焦、设置选区**之前**，先用 `initial`（调用方 `view.ts` 的 `beginEdit()` 传入的 `node.text`，即模型里的原始 Markdown 源文本，不是从 DOM 读的）整体覆盖 `.mm-text` 的内容——这一步保证了用户开始编辑时看到的、以及提交时读回的，始终是同一份原文。改这段代码时，`initial`/`node.text` 必须继续来自 `this.doc`，不能改成从 DOM 读。提交或取消编辑后 `render()` 会用新文字重新走一遍 `parseInline`，把 token 渲染回 DOM。
+
+链接元素会 `stopPropagation()` 挡掉 `this.root` 上的平移/选中/拖拽三个 `pointerdown` 监听（否则点链接会先触发一次节点拖拽/选中）；wikilink 的跳转动作由 `view.ts` 通过可选回调 `onOpenLink` 注入（`this.app.workspace.openLinkText(...)`），`node-el.ts` 本身不 import `"obsidian"`、不碰 `app`。wikilink 元素带 `class="internal-link"` `data-href`，这是 Obsidian 渲染 wikilink 的约定属性，但 Obsidian 自己的全局点击处理只在它自己调用过 `registerDomEvents()` 的 `markdown-preview-view`/编辑器/嵌入容器内生效（反编译 `obsidian.asar` 确认过），`.mm-node` 不在那些容器下，不会被接管，因此不存在"点一次链接打开两次笔记"的问题。
+
 ## 门禁
 
 改完必须四条全绿：
 
 ```bash
 npm run typecheck     # tsc --noEmit
-npm test              # vitest run（194 个）
+npm test              # vitest run（232 个）
 npm run build         # 生成 main.js
 npm run check:purity  # 纯函数层边界
 ```

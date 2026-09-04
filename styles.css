@@ -137,6 +137,25 @@
   min-width: 1px;
 }
 
+/* ---------- 行内 Markdown ---------- */
+
+.mm-text code {
+  padding: 0 4px;
+  font-family: var(--font-monospace);
+  font-size: 0.9em;
+  background: var(--code-background, var(--background-modifier-hover));
+  border-radius: 4px;
+}
+
+.mm-text a {
+  color: var(--text-accent);
+  text-decoration: none;
+}
+
+.mm-text a:hover {
+  text-decoration: underline;
+}
+
 .mm-collapse-badge {
   flex: 0 0 auto;
   min-width: 18px;

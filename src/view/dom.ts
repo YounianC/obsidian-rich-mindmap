@@ -25,3 +25,11 @@ export function svgEl<K extends keyof SVGElementTagNameMap>(
 export function clear(node: Element): void {
   while (node.firstChild !== null) node.removeChild(node.firstChild);
 }
+
+/** 纯文本节点，配合 `el()` programmatic 地拼装行内 Markdown 的渲染结果，
+ *  绝不通过 `innerHTML` 传入用户文字——见 src/view/node-el.ts 顶部注释。 */
+export function textNode(content: string, parent?: Node): Text {
+  const node = document.createTextNode(content);
+  if (parent !== undefined) parent.appendChild(node);
+  return node;
+}
