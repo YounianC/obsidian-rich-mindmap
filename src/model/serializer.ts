@@ -1,8 +1,6 @@
 import { formatMarks } from "./marks";
 import type { MindDoc, MindNode } from "./types";
 
-const INDENT = "  ";
-
 /** 组合标记与文本，避免空文本时出现尾随空格。 */
 function composeLine(node: MindNode): string {
   const marks = formatMarks(node.marks);
@@ -11,15 +9,21 @@ function composeLine(node: MindNode): string {
   return `${marks} ${node.text}`;
 }
 
-function serializeNodes(nodes: readonly MindNode[], depth: number): string {
+function serializeNodes(
+  nodes: readonly MindNode[],
+  depth: number,
+  indentUnit: string,
+): string {
   let out = "";
   for (const node of nodes) {
     // 用节点自己的 bullet 而不是固定的 `-`：`*`/`+` 同样是合法的 CommonMark
     // 列表标记，把它们改写成 `-` 会让一个只是被导图视图打开过的文件产生
     // 全量 diff（见 README「写回归一化」一节的承诺）。
-    out += `${INDENT.repeat(depth)}${node.bullet} ${composeLine(node)}\n`;
+    // indentUnit 是整份文档统一的一个值，不按节点分别记忆——缩进宽度永远是
+    // unit × depth，因此一个节点被拖拽换到别的深度也能得到正确缩进。
+    out += `${indentUnit.repeat(depth)}${node.bullet} ${composeLine(node)}\n`;
     for (const line of node.continuation) out += `${line}\n`;
-    out += serializeNodes(node.children, depth + 1);
+    out += serializeNodes(node.children, depth + 1, indentUnit);
   }
   return out;
 }
@@ -42,7 +46,7 @@ export function serialize(doc: MindDoc): string {
     out += `${doc.headingPrefix}${doc.root.text}${doc.headingSuffix}\n`;
   }
   out += doc.headingGap;
-  out += serializeNodes(doc.root.children, 0);
+  out += serializeNodes(doc.root.children, 0, doc.indentUnit);
   out += doc.tail;
   return out;
 }

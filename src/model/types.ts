@@ -30,6 +30,12 @@ export interface MindNode {
 }
 
 export interface MindDoc {
+  /** 写回列表缩进时每层使用的字面单位（如 `"  "`、`"\t"`、`"    "`）。
+   *  按整份文档统一取值，不按节点分别记忆：缩进宽度永远是 `unit × depth`，
+   *  因此一个节点被拖拽换到别的深度也依旧能得到一致、正确的缩进。
+   *  由 parser 从文件推断；文件缩进混用/不构成单一一致单位、没有可推断的
+   *  缩进层级、或没有一级标题时，取兜底值 `"  "`。 */
+  indentUnit: string;
   /** frontmatter 原始文本，不含 --- 分隔符；无 frontmatter 时为 null */
   frontmatter: string | null;
   /** frontmatter 结束围栏 `---` 之后、换行之前的空白，原样保留 */

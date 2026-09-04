@@ -36,6 +36,13 @@ const CORPUS: string[] = [
   "#   t\n\n- a\n",
   "# t   \n\n- a\n",
   "---\nmindmap: true\n---  \n\n# t\n\n- a\n",
+  // 缩进单位保留：文件用什么缩进单位，写回就用什么，不再统一改写成 2 空格
+  // （见 MindDoc.indentUnit）。下面四条分别覆盖 Tab、4 空格、3 空格，以及
+  // 三层以上的深层嵌套 Tab 缩进。
+  "# t\n\n- a\n\t- b\n",
+  "# t\n\n- a\n    - b\n",
+  "# t\n\n- a\n   - b\n",
+  "# t\n\n- a\n\t- b\n\t\t- c\n\t\t\t- d\n",
 ];
 
 describe("serialize(parse(md)) === md", () => {
@@ -112,6 +119,9 @@ function nodeArb(depth: number): fc.Arbitrary<MindNode> {
 const docArb: fc.Arbitrary<MindDoc> = fc.boolean().chain((hasHeading) =>
   fc
     .record({
+      // 属性测试只需类型对齐；indentUnit 是整份文档统一的字面单位，这里固定
+      // 用两空格,与 continuationArb 里硬编码的两空格续行缩进保持一致。
+      indentUnit: fc.constant("  "),
       frontmatter: fc.constantFrom(
         null,
         "mindmap: true",
@@ -168,6 +178,14 @@ describe("已知归一化", () => {
   it("列表项之间有两个空行时同样被归一化为紧凑列表", () => {
     expect(serialize(parse("# t\n\n- a\n\n\n- b\n", "x.md"))).toBe(
       "# t\n\n- a\n- b\n",
+    );
+  });
+
+  it("缩进单位混用（空格与 Tab 并存）时无法归纳出单一单位，兜底为 2 空格", () => {
+    // b 用 2 空格缩进、c 用 1 个 Tab 缩进：两者长度不同又不互为整数倍，
+    // detectIndentUnitString 判定文件没有单一一致的缩进单位。
+    expect(serialize(parse("# t\n\n- a\n  - b\n\t- c\n", "x.md"))).toBe(
+      "# t\n\n- a\n  - b\n    - c\n",
     );
   });
 });

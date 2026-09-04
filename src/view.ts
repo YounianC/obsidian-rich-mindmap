@@ -305,6 +305,9 @@ export class MindmapView extends TextFileView {
     this.doc = next;
     // 编辑期间不重绘：render() 会重建 DOM 节点，销毁正在编辑的 contenteditable。
     if (this.editingId === null) this.render();
+    // 有意不调用基类的 requestSave()：那会置位基类的 dirty 标记，进而在外部
+    // 修改到来时触发它的按行三路合并——对序列化后的导图 Markdown 做文本合并
+    // 只会比「磁盘覆盖本地待存改动」更糟。这里全靠自己的防抖 + save() 落盘。
     this.scheduleSave();
   }
 

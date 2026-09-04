@@ -30,6 +30,8 @@ function indentWidth(indent: string): number {
 }
 
 interface ListItemLine {
+  /** 原始缩进字符串，逐字保留（tab 与空格不折算），供 detectIndentUnitString 使用。 */
+  indent: string;
   depthWidth: number;
   bullet: Bullet;
   text: string;
@@ -63,6 +65,7 @@ function scanListBlock(
     const item = LIST_ITEM_RE.exec(line);
     if (item) {
       items.push({
+        indent: item[1],
         depthWidth: indentWidth(item[1]),
         // 正则第 2 组只可能匹配到 `-`/`*`/`+` 三者之一，这里的断言是把这一点
         // 从正则转达给类型系统，不是运行时判断。
@@ -95,6 +98,33 @@ function detectIndentUnit(items: ListItemLine[]): number {
     if (delta > 0) return delta;
   }
   return 2;
+}
+
+/**
+ * 推断写回列表缩进时使用的字面单位字符串（如 `"  "`、`"\t"`、`"    "`）。
+ *
+ * 取块内第一个比基准缩进（items[0] 的缩进）更深的条目，把它的原始缩进字符串
+ * 减去基准缩进的长度，得到候选单位。随后校验这个单位能否*逐字符*、一致地
+ * 解释块内每一个条目的缩进——即每个条目的缩进都必须恰好等于
+ * `候选单位.repeat(k)`（k 为非负整数）。只要有一个条目对不上（例如整份文件
+ * 混用了 tab 和空格，或缩进宽度不是候选单位的整数倍），就说明这份文件没有
+ * 单一一致的缩进单位，写回时无法保真，退回两空格兜底。
+ *
+ * 没有任何条目比基准更深（没有缩进层级）时同样返回两空格兜底。
+ */
+function detectIndentUnitString(items: ListItemLine[]): string {
+  if (items.length === 0) return "  ";
+  const baseLen = items[0].indent.length;
+  const deeper = items.find((item) => item.indent.length > baseLen);
+  if (deeper === undefined) return "  ";
+  const unit = deeper.indent.slice(baseLen);
+  if (unit === "") return "  ";
+  for (const item of items) {
+    const suffix = item.indent.slice(baseLen);
+    if (suffix.length % unit.length !== 0) return "  ";
+    if (unit.repeat(suffix.length / unit.length) !== suffix) return "  ";
+  }
+  return unit;
 }
 
 /** 按缩进宽度把扁平条目组装成树，缩进跳跃时挂到最近合法父节点。 */
@@ -197,6 +227,7 @@ export function parse(md: string, fileName: string): MindDoc {
 
   if (blockStart < 0) {
     return {
+      indentUnit: "  ",
       frontmatter,
       frontmatterFenceSuffix,
       hasHeading,
@@ -213,8 +244,12 @@ export function parse(md: string, fileName: string): MindDoc {
   const firstBullet = items[0]?.bullet;
   if (firstBullet !== undefined) root.bullet = firstBullet;
   buildTree(items, root);
+  // 没有一级标题时不推断真实缩进单位，直接兜底两空格：这种文件里的列表
+  // 块脱离了标题上下文，属于本插件不主动优化的边缘情形（见 MindDoc.indentUnit）。
+  const indentUnit = hasHeading ? detectIndentUnitString(items) : "  ";
 
   return {
+    indentUnit,
     frontmatter,
     frontmatterFenceSuffix,
     hasHeading,

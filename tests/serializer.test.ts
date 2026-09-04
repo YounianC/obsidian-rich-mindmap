@@ -3,14 +3,19 @@ import { parse } from "../src/model/parser";
 import { serialize } from "../src/model/serializer";
 
 describe("serialize", () => {
-  it("缩进统一为 2 空格", () => {
+  it("保留文件原有的 4 空格缩进单位", () => {
     const doc = parse("# t\n\n- a\n    - b\n        - c\n", "x.md");
-    expect(serialize(doc)).toBe("# t\n\n- a\n  - b\n    - c\n");
+    expect(serialize(doc)).toBe("# t\n\n- a\n    - b\n        - c\n");
   });
 
-  it("Tab 缩进归一化为 2 空格", () => {
+  it("保留文件原有的 Tab 缩进单位", () => {
     const doc = parse("# t\n\n- a\n\t- b\n", "x.md");
-    expect(serialize(doc)).toBe("# t\n\n- a\n  - b\n");
+    expect(serialize(doc)).toBe("# t\n\n- a\n\t- b\n");
+  });
+
+  it("缩进单位混用（空格与 Tab 并存）时兜底为 2 空格", () => {
+    const doc = parse("# t\n\n- a\n  - b\n\t- c\n", "x.md");
+    expect(doc.indentUnit).toBe("  ");
   });
 
   it("* 与 + 列表标记原样保留，不归一化为 -", () => {
