@@ -111,10 +111,14 @@ H1 行没有行内标记语法，`serialize` 刻意不写 `root.marks`。所以 
 
 ```bash
 npm run typecheck     # tsc --noEmit
-npm test              # vitest run（237 个）
+npm test              # vitest run（241 个）
 npm run build         # 生成 main.js
 npm run check:purity  # 纯函数层边界
 ```
+
+**任何手写的、带回溯/递归下降的 parser，只交正确性测试不够，必须同时带对抗性长输入测试**：既要有时间上限断言（防止病态输入卡死主线程——`parseSpan` 的记忆化就是补这个洞的），也要有结构化输出断言（防止退化成"整段都当字面文本"却因为 round-trip 恒等而蒙混过关）。这不是假设性的顾虑：`src/model/inline.ts` 在拿到 38 个全绿的正确性测试之后，仍然让一个真实用户输入（几千字符、夹杂大量星号波浪线）把 Obsidian 主线程冻结了 15 秒以上，直到专门补了病态输入的性能回归测试才被发现。
+
+`npm run check:purity` **看不到**性能/结构化输出这类问题，它只校验目录边界（有没有 `import "obsidian"`、有没有碰 DOM），跟一个纯函数在某些输入下会不会变慢或退化没有关系——这条门禁能保证的只是"这段代码可以被单测覆盖"，不保证"它真的被覆盖到了对的场景"。
 
 ## 发布
 

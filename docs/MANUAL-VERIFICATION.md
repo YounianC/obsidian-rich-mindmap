@@ -94,6 +94,7 @@ node scripts/check-purity.mjs   # 纯函数层边界校验（src/model/*.ts 6 �
 - [ ] 编辑到一半（未按 Enter/Esc/失焦提交）直接切换到另一个文件再切回来：已经敲的文字应该已被保存（走的是文件卸载时的 blur 提交路径）。
 - [ ] 🔴 **在编辑框内按下 Cmd/Ctrl+Enter 或 Cmd/Ctrl+Escape（Obsidian 全局快捷键常用的修饰键组合）：Obsidian 自己的快捷键应正常触发，不应被编辑框吞掉**（历史真实 bug：修复上面 Enter 误触问题时新加的 `stopPropagation()` 没有像画布级处理器一样加修饰键放行判断，导致编辑期间所有 Cmd/Ctrl+Enter/Escape 快捷键失效；已修复，加了 `metaKey||ctrlKey||altKey` 时提前放行的守卫）。
 - [ ] 大约 0.4 秒的防抖保存生效（编辑后不是立即写盘，稍等即写），frontmatter 里除 `mindmap`/`mindmap-collapsed` 外的其他键不受任何影响。
+- [ ] 🔴 **进入一个节点的编辑态，粘贴一段很长（几千字符）、夹杂大量 `*`/`**`/`~~` 且大部分不闭合的文本（例如代码片段、数学记号、口语化强调堆砌的文字），提交后 Obsidian 不应冻结/卡死，加粗/斜体/删除线该识别的地方应正确识别、不该识别的地方回退为字面文本**（对应 `src/model/inline.ts` 的 `parseSpan` 记忆化 + `MAX_DEPTH` 深度上限；自动化测试只能验证纯函数本身的时间上限和输出结构，验证不了粘贴这个动作本身、以及 Obsidian 真实渲染进程的观感）。
 
 ---
 

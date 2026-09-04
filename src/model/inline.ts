@@ -65,6 +65,21 @@ interface SpanResult {
  * 每次 render() 时冻结 Obsidian 主线程。加上按 (start, closer) 的记忆化后，
  * 每个 key 只真正求解一次，总工作量降到多项式级别（详见
  * tests/inline.test.ts 里 `.repeat(30)`/`.repeat(300)` 的性能回归测试）。
+ *
+ * **诚实说明缓存与 `MAX_DEPTH` 的交互（这条边界不是无条件纯的）**：
+ * `parseSpan` 本身只依赖 `text`/`start`/`closer`，但 `MAX_DEPTH` 兜底（见下面
+ * 的常量注释）会让"某个位置能不能再往下开一层新标记"这件事额外依赖调用者
+ * 当时的递归深度 `depth`。缓存 key 不包含 `depth`，所以一个 `(start, closer)`
+ * 结果一旦被写入缓存，就固定了"当时那次调用的 depth 预算下算出的结果"，
+ * 后续任何 `depth` 更浅的调用命中缓存时都会直接复用这个结果，即使换成更浅
+ * 的 depth 重新算一遍可能会得到不同的答案（该位置本可以成功打开一层新标记，
+ * 而不是像缓存里那样因为撞到 `MAX_DEPTH` 而被迫当字面文本处理）。换句话说，
+ * "同一个 `(start, closer)` 结果必然相同"这个假设，只有在不考虑 `MAX_DEPTH`
+ * 硬上限时才严格成立；加了深度兜底之后，它变成"结果由**第一个到达该位置的
+ * 调用**的 depth 预算决定，此后被固定下来"。这个不精确不影响本文件的安全性
+ * 结论（`MAX_DEPTH` 只会让结果更保守，不会丢字符/抛异常），但如果以后要把
+ * `MAX_DEPTH` 从"硬退化为字面文本"换成别的语义（例如按 depth 分桶缓存），
+ * 这条注释是必须先读的背景。
  */
 type SpanCache = Map<string, SpanResult>;
 
@@ -87,23 +102,41 @@ function spanCacheKey(start: number, closer: string | null): string {
  * 崩溃比原来的"卡死"更糟：那是一个未捕获异常，会在 `render()` 内部——同步
  * 渲染管线的核心路径上——直接抛出。
  *
- * 修法：给递归深度设一个远高于任何真实嵌套需求、又远低于任何危险栈深度的
- * 硬上限。真实的 Markdown 嵌套（`**a *b ~~c~~* d**` 这种）几乎不可能超过个位数
- * 层级，100 已经是极大的余量；一旦某个位置的递归深度达到这个上限，直接放弃
- * 为它打开新的标记尝试、把开启符当字面文本处理——不递归、不抛异常、不丢
- * 字符，只是那个位置往后不再尝试识别标记（真实文本几乎不会撞到这个上限，
- * 见 tests/inline.test.ts 里 `.repeat(2000)` 那条深度回归测试）。这只是加了
- * 一个提前退出条件，不改变现有的记忆化缓存/扫描逻辑，不是把算法换成
- * delimiter-stack scanner。
+ * 修法：给递归深度设一个硬上限。一旦某个位置的递归深度达到这个上限，直接
+ * 放弃为它打开新的标记尝试、把开启符当字面文本处理——不递归、不抛异常、不丢
+ * 字符，只是那个位置往后不再尝试识别标记。这只是加了一个提前退出条件，不
+ * 改变现有的记忆化缓存/扫描逻辑，不是把算法换成 delimiter-stack scanner。
+ *
+ * **上限具体定多少、为什么不是 100**：这个值不是"远高于真实嵌套需求"就够
+ * 了——它同时决定了"输出在什么规模开始偏离无上限时的正确结果"，而这条边界
+ * 比崩溃阈值近得多。对 `"**a*b~~c".repeat(n)` 这个病态族，实测（人工模拟 +
+ * 用例核对）在 `MAX_DEPTH = 100` 时，输出从 n=35（280 字符）就开始与"无上限
+ * 版本"的 token 树产生分歧——比 8000 字符左右才会触发栈溢出的危险区低了一个
+ * 数量级还多，也就是说旧的 100 这个值本身就是一个会被真实长文本（例如从别处
+ * 粘贴进节点的一段几百字符、夹杂标点符号的文字）撞到的"过于保守"的上限,
+ * 而不是它注释曾经声称的"远高于真实嵌套需求"。1200 把这条分歧边界推到足够
+ * 高的位置，同时仍与约 3000 深度起才不稳定、约 8000 字符触发崩溃的危险区
+ * 保持 2 倍以上的余量。**这只是一个止血创可贴，不是根治**：真正的修法是把
+ * `parseSpan` 这个per-position 的递归下降改写成显式栈（explicit-stack）的
+ * 循环实现，彻底不受调用栈深度限制，也就不需要在"正确性"和"安全"之间做
+ * 任何权衡；这个改写留作后续任务，记录于设计 spec 的「已知限制」一节。
  */
-const MAX_DEPTH = 100;
+const MAX_DEPTH = 1200;
 
 /**
  * 解析 `text[start..)` 直到遇到 `closer`（闭合并消费掉它）或扫到字符串末尾
  * （未闭合）。`closer` 为 `null` 表示顶层调用，解析到字符串末尾为止。
- * `depth` 是当前递归深度（顶层调用传 0），用于 `MAX_DEPTH` 兜底，见上面的
- * 说明；它不参与缓存 key——同一个 `(start, closer)` 不管在哪个深度被请求，
- * 只要缓存里已经有答案就直接复用。
+ * `depth` 是当前递归深度（顶层调用传 0），`maxDepth` 是 `MAX_DEPTH` 兜底的
+ * 上限（生产路径固定传 `MAX_DEPTH`；`parseInlineWithDepth` 让测试可以传别的
+ * 值，用来对照"上限收紧/放宽会不会改变输出"，见文件末尾）。二者都**不参与
+ * 缓存 key**——`(start, closer)` 相同就命中缓存，不管请求方当时的 `depth`/
+ * `maxDepth` 是什么。这意味着缓存住的结果实际上锁定的是"第一个到达该位置的
+ * 调用所看到的 depth 预算"：如果后来有个 `depth` 更浅、或 `maxDepth` 更宽松
+ * 的调用请求同一个 `(start, closer)`，即便重新算一遍可能得到不同结果（比如
+ * 本可以成功打开一层新标记），也会直接拿到缓存里那个在更紧的预算下算出的
+ * （更保守的）答案。详见 `SpanCache` 定义处的完整说明。**这也是为什么下面
+ * 的结构化测试要用两次独立的 `parseInline`/`parseInlineWithDepth` 调用（各自
+ * 一份新缓存）来对照，而不是在同一份缓存里混用不同 `maxDepth` 调用。**
  */
 function parseSpan(
   text: string,
@@ -111,6 +144,7 @@ function parseSpan(
   closer: string | null,
   cache: SpanCache,
   depth: number,
+  maxDepth: number,
 ): SpanResult {
   const key = spanCacheKey(start, closer);
   const cached = cache.get(key);
@@ -205,7 +239,7 @@ function parseSpan(
 
     // 加粗：`**...**`，先于单星号斜体判断。
     if (text.startsWith("**", pos)) {
-      const inner = depth < MAX_DEPTH ? parseSpan(text, pos + 2, "**", cache, depth + 1) : null;
+      const inner = depth < maxDepth ? parseSpan(text, pos + 2, "**", cache, depth + 1, maxDepth) : null;
       if (inner !== null && inner.closed) {
         flush();
         tokens.push({ kind: "strong", children: inner.tokens });
@@ -219,7 +253,7 @@ function parseSpan(
 
     // 删除线：`~~...~~`。
     if (text.startsWith("~~", pos)) {
-      const inner = depth < MAX_DEPTH ? parseSpan(text, pos + 2, "~~", cache, depth + 1) : null;
+      const inner = depth < maxDepth ? parseSpan(text, pos + 2, "~~", cache, depth + 1, maxDepth) : null;
       if (inner !== null && inner.closed) {
         flush();
         tokens.push({ kind: "del", children: inner.tokens });
@@ -233,7 +267,7 @@ function parseSpan(
 
     // 斜体：单个 `*`。刻意不支持 `_`，见文件头注释。
     if (ch === "*") {
-      const inner = depth < MAX_DEPTH ? parseSpan(text, pos + 1, "*", cache, depth + 1) : null;
+      const inner = depth < maxDepth ? parseSpan(text, pos + 1, "*", cache, depth + 1, maxDepth) : null;
       if (inner !== null && inner.closed) {
         flush();
         tokens.push({ kind: "em", children: inner.tokens });
@@ -254,6 +288,18 @@ function parseSpan(
 }
 
 export function parseInline(text: string): InlineToken[] {
+  return parseInlineWithDepth(text, MAX_DEPTH);
+}
+
+/**
+ * 仅供测试使用：允许传入自定义的深度上限，而不是生产路径固定的 `MAX_DEPTH`。
+ * 用来验证"把上限调得足够宽（例如 1_000_000，等价于实际不受限）"与
+ * `parseInline`（固定用 `MAX_DEPTH`）在真实输入规模下产出**完全相同**的
+ * token 树——即 `MAX_DEPTH` 目前的取值不会让任何被测的真实场景发生退化，
+ * 而不只是"没有抛异常/没有超时"这种弱得多的断言。见
+ * tests/inline.test.ts「结构化输出」describe 块。
+ */
+export function parseInlineWithDepth(text: string, maxDepth: number): InlineToken[] {
   const cache: SpanCache = new Map();
-  return parseSpan(text, 0, null, cache, 0).tokens;
+  return parseSpan(text, 0, null, cache, 0, maxDepth).tokens;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseInline, type InlineToken } from "../src/model/inline";
+import { parseInline, parseInlineWithDepth, type InlineToken } from "../src/model/inline";
 
 /**
  * 仅供测试使用：把 token 树还原成源文本，用来验证 tokenizer 不丢字符。
@@ -336,6 +336,62 @@ describe("parseInline — 性能回归（parseSpan 按 (start, closer) 记忆化
     expect(elapsed).toBeLessThan(500);
     expect(tokens).toBeDefined();
     expect(reconstruct(tokens as InlineToken[])).toBe(input);
+  });
+});
+
+describe("parseInline — 结构化输出（round-trip 相等不足以发现的退化）", () => {
+  // round-trip（reconstruct(parseInline(x)) === x）只能证明"没丢字符"，
+  // 一个把所有内容都判定成一个 text token 的实现也能通过 round-trip——
+  // MAX_DEPTH 被调得过紧就是这样一种退化：真实的 **/*/`` 嵌套被当成字面
+  // 文本处理，round-trip 依旧成立，但用户看到的画布上不再有加粗/斜体/代码
+  // 样式。这个 describe 块专门断言 token *树的结构*，不只是还原出的字符串。
+
+  it("~600 字符的普通文本，嵌套标记出现在靠后位置：应解析出 strong→em 嵌套与 code token，而不是整段字面文本", () => {
+    const padding =
+      "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. ".repeat(
+        4,
+      );
+    const text =
+      padding +
+      "**bold with *em* inside** trailing prose here and there, quite a lot of it actually. " +
+      "`code`" +
+      " and a bit more trailing text to round things out nicely at the end.";
+    // 长度与标记位置符合任务描述的场景：~600+ 字符，加粗出现在约第 500 个
+    // 字符处，代码标记出现在约第 580 个字符处。
+    expect(text.length).toBeGreaterThan(600);
+    expect(text.indexOf("**bold")).toBeGreaterThan(400);
+    expect(text.indexOf("`code`")).toBeGreaterThan(550);
+
+    const tokens = parseInline(text);
+
+    const strong = tokens.find(
+      (t): t is Extract<InlineToken, { kind: "strong" }> => t.kind === "strong",
+    );
+    expect(strong, "应该解析出 strong token，而不是把 ** 当字面文本").toBeDefined();
+    const em = strong!.children.find(
+      (t): t is Extract<InlineToken, { kind: "em" }> => t.kind === "em",
+    );
+    expect(em, "strong 内部应该嵌套出 em token").toBeDefined();
+    expect(em!.children).toEqual([{ kind: "text", text: "em" }]);
+
+    const code = tokens.find(
+      (t): t is Extract<InlineToken, { kind: "code" }> => t.kind === "code",
+    );
+    expect(code, "应该解析出 code token，而不是把反引号当字面文本").toBeDefined();
+    expect(code!.text).toBe("code");
+
+    // round-trip 依旧必须成立——结构化断言是round-trip的补充，不是替代。
+    expect(reconstruct(tokens)).toBe(text);
+  });
+
+  it('"**a*b~~c".repeat(300)（2400 字符）与"实质上不受限"的深度上限（1_000_000）产出完全相同的 token 树', () => {
+    // UNIT 定义在上面「性能回归」describe 块的作用域内，这里独立重复一份，
+    // 保持两处对同一个病态输入族的定义各自独立、互不依赖。
+    const UNIT = "**a*b~~c";
+    const input = UNIT.repeat(300);
+    const capped = parseInline(input); // 生产路径，固定用 MAX_DEPTH
+    const uncapped = parseInlineWithDepth(input, 1_000_000);
+    expect(capped).toEqual(uncapped);
   });
 });
 
