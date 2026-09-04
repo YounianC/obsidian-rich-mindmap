@@ -33,3 +33,6 @@ Thumbs.db
 *.log
 npm-debug.log*
 yarn-error.log*
+
+# 发布产物暂存目录
+dist/
