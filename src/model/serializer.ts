@@ -1,5 +1,5 @@
 import { formatMarks } from "./marks";
-import type { MindDoc, MindNode } from "./types";
+import { isHeading, type MindDoc, type MindNode } from "./types";
 
 /** 组合标记与文本，避免空文本时出现尾随空格。 */
 function composeLine(node: MindNode): string {
@@ -9,26 +9,40 @@ function composeLine(node: MindNode): string {
   return `${marks} ${node.text}`;
 }
 
+/**
+ * 前序遍历写出子树。
+ *
+ * `listDepth` 是「从最近的标题祖先算起」的深度，不是树深度：一个 H3 下的一级
+ * 列表项树深度是 3，而文件里的缩进是 0。标题节点把 listDepth 归零，并把自己
+ * 记住的缩进单位传给子树；没有记住单位时沿用继承来的那个。
+ */
 function serializeNodes(
   nodes: readonly MindNode[],
-  depth: number,
+  listDepth: number,
   indentUnit: string,
 ): string {
   let out = "";
   for (const node of nodes) {
+    if (isHeading(node)) {
+      // 逐字重放 prefix / suffix，**永不从 heading.level 重算 `#` 的个数**：
+      // 层级归属规则与文件字节必须解耦，否则调整归属就会改写用户的文件。
+      // 标记写在 `#` 之后、标题文字之前，与列表项同一套语法。
+      out += `${node.heading.prefix}${composeLine(node)}${node.heading.suffix}\n`;
+      for (const line of node.continuation) out += `${line}\n`;
+      out += serializeNodes(node.children, 0, node.heading.indentUnit ?? indentUnit);
+      continue;
+    }
     // 用节点自己的 bullet 而不是固定的 `-`：`*`/`+` 同样是合法的 CommonMark
     // 列表标记，把它们改写成 `-` 会让一个只是被导图视图打开过的文件产生
     // 全量 diff（见 README「写回归一化」一节的承诺）。
-    // indentUnit 是整份文档统一的一个值，不按节点分别记忆——缩进宽度永远是
-    // unit × depth，因此一个节点被拖拽换到别的深度也能得到正确缩进。
-    out += `${indentUnit.repeat(depth)}${node.bullet} ${composeLine(node)}\n`;
+    out += `${indentUnit.repeat(listDepth)}${node.bullet} ${composeLine(node)}\n`;
     for (const line of node.continuation) out += `${line}\n`;
-    out += serializeNodes(node.children, depth + 1, indentUnit);
+    out += serializeNodes(node.children, listDepth + 1, indentUnit);
   }
   return out;
 }
 
-/** 把思维导图文档写回 Markdown。列表块之外的内容原样保留。 */
+/** 把思维导图文档写回 Markdown。节点行之外的内容原样保留。 */
 export function serialize(doc: MindDoc): string {
   let out = "";
   // 结束围栏后的尾随空白按原样重放：`---   ` 是合法的 frontmatter 结束行，
@@ -37,16 +51,17 @@ export function serialize(doc: MindDoc): string {
     out += `---\n${doc.frontmatter}\n---${doc.frontmatterFenceSuffix}\n`;
   }
   out += doc.preamble;
-  // 根节点的 marks 有意不写回：H1 标题行没有承载行内标记语法的位置，标记是
-  // 列表项的概念。tree-ops 负责保证 root.marks 永远不会被设置；这里不做兜底
-  // 判断，纯粹依赖上游不变量，因此绝不能给 H1 拼接 formatMarks(doc.root.marks)。
-  // headingPrefix/headingSuffix 保留标题行原来的空白排布（`#   T`、`# T   `），
-  // 同理不做归一化。
-  if (doc.hasHeading) {
-    out += `${doc.headingPrefix}${doc.root.text}${doc.headingSuffix}\n`;
+  // 根节点的标题行：prefix/suffix 保留原来的空白排布（`#   T`、`# T   `），
+  // 不做归一化。hasHeading 为假时文件里没有 H1 行，不写；此时 parse 保证
+  // root.continuation 为空，所以下面那圈循环不会写出孤立的行。
+  const rootIndentUnit = doc.root.heading?.indentUnit ?? doc.indentUnit;
+  if (doc.hasHeading && isHeading(doc.root)) {
+    // 根节点的 marks 有意不写：hasHeading 为假时根本没有 H1 行可写，标记会
+    // 静默丢失。tree-ops.setMarks / toggleMark 对根 id 是 no-op 来保证这一点，
+    // 所以这里直接写 root.text，不走 composeLine。
+    out += `${doc.root.heading.prefix}${doc.root.text}${doc.root.heading.suffix}\n`;
+    for (const line of doc.root.continuation) out += `${line}\n`;
   }
-  out += doc.headingGap;
-  out += serializeNodes(doc.root.children, 0, doc.indentUnit);
-  out += doc.tail;
+  out += serializeNodes(doc.root.children, 0, rootIndentUnit);
   return out;
 }

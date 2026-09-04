@@ -1,4 +1,4 @@
-import { setIcon } from "obsidian";
+import { setIcon, setTooltip } from "obsidian";
 import { el } from "./dom";
 import { placeNear } from "./popover";
 
@@ -12,16 +12,42 @@ export interface ToolbarHandlers {
   onToggleCollapse(): void;
 }
 
+/**
+ * 当前选中节点上哪些操作是可用的。
+ *
+ * 用一个能力对象而不是若干布尔量：三个按钮的禁用条件互不相同（「加兄弟」看
+ * 是不是根，「删除」还要看有没有携带图上不可见的正文，「标记」只看是不是根），
+ * 把判断留在 tree-ops 里、这里只消费结果，能避免视图层重新推导一遍规则。
+ */
+export interface NodeCapabilities {
+  canCollapse: boolean;
+  canAddSibling: boolean;
+  canRemove: boolean;
+  canMark: boolean;
+  /** 该节点是否携带图上不可见的正文（标题下的散文、有序列表、代码块……）。
+   *  它是 `canRemove` 为 false 的两个原因之一（另一个是「这是根节点」），
+   *  禁用提示需要据此给出具体说明——否则同级节点一个能删一个不能，用户
+   *  在图上看不出任何差别，只会觉得按钮的启用状态是任意的。 */
+  hasHiddenContent: boolean;
+}
+
 interface ButtonSpec {
   icon: string;
   label: string;
   action: (button: HTMLButtonElement) => void;
   /** 返回 true 表示在当前选中状态下禁用 */
-  disabled?: (canCollapse: boolean, isRoot: boolean) => boolean;
+  disabled?: (caps: NodeCapabilities) => boolean;
+  /** 禁用时替换 hover 提示的文案，说明「为什么不能点」。 */
+  disabledLabel?: (caps: NodeCapabilities) => string;
   /** 标记「文字样式」按钮：它自己管理样式菜单的开关，点击时不应被下面的
    *  「点击其它按钮先关掉样式菜单」逻辑抢先关闭。 */
   isStyleToggle?: boolean;
 }
+
+/** 提示的展示延迟（毫秒）。原生 `title` 在 Electron 里要等 1–2 秒才浮出来，
+ *  对「这个按钮为什么是灰的」这种即时疑问来说等于没有；Obsidian 自己的
+ *  tooltip 可以把延迟压到几乎无感。 */
+const TOOLTIP_DELAY_MS = 120;
 
 const STYLE_MARKERS: readonly { marker: "**" | "*" | "~~"; label: string }[] = [
   { marker: "**", label: "加粗" },
@@ -34,7 +60,7 @@ export function createToolbar(
   host: HTMLElement,
   handlers: ToolbarHandlers,
 ): {
-  showFor(nodeEl: HTMLElement, canCollapse: boolean, isRoot: boolean): void;
+  showFor(nodeEl: HTMLElement, caps: NodeCapabilities): void;
   hide(): void;
 } {
   // mm-no-pan：画布上「界面元素」的通用标记（见 view.ts 的 attachCameraEvents
@@ -68,13 +94,21 @@ export function createToolbar(
       icon: "plus",
       label: "添加兄弟节点",
       action: () => handlers.onAddSibling(),
-      disabled: (_canCollapse, isRoot) => isRoot,
+      // 根节点没有兄弟。标题节点可以——addSibling 对它产出一个同级标题。
+      disabled: (caps) => !caps.canAddSibling,
+      disabledLabel: () => "根节点没有兄弟节点",
     },
     {
       icon: "trash-2",
       label: "删除节点",
       action: () => handlers.onRemove(),
-      disabled: (_canCollapse, isRoot) => isRoot,
+      // 携带图上不可见正文（标题下的散文、代码块、表格）的节点不可删，
+      // 否则会删掉用户看不见的东西。见 tree-ops.hasHiddenContent。
+      disabled: (caps) => !caps.canRemove,
+      disabledLabel: (caps) =>
+        caps.hasHiddenContent
+          ? "该节点携带图上不可见的正文（标题下的散文、有序列表、代码块等），删除会连带丢掉这些内容"
+          : "根节点不能删除",
     },
     {
       icon: "type",
@@ -107,10 +141,11 @@ export function createToolbar(
       icon: "circle-check-big",
       label: "标记",
       action: (button) => handlers.onMarks(button.getBoundingClientRect()),
-      // 根节点是 H1 标题行，没有承载标记的行内语法：toggleMark 对根 id 是
-      // 有意的 no-op（见 model/tree-ops.ts），serialize 也会忽略根节点的 marks。
-      // 若不在这里禁用，选中根节点打开面板后点任何选项都会静默失败。
-      disabled: (_canCollapse, isRoot) => isRoot,
+      // 根节点不能带标记：文件没有 H1 行时根本没有可写的位置，toggleMark 对根
+      // id 是有意的 no-op（见 model/tree-ops.ts）。若不在这里禁用，选中根节点
+      // 打开面板后点任何选项都会静默失败。文件里的 H2–H6 可以带标记。
+      disabled: (caps) => !caps.canMark,
+      disabledLabel: () => "根节点不能带标记：文件里没有一级标题时无处写回",
     },
     {
       icon: "link",
@@ -121,14 +156,15 @@ export function createToolbar(
       icon: "fold-vertical",
       label: "折叠子树",
       action: () => handlers.onToggleCollapse(),
-      disabled: (canCollapse) => !canCollapse,
+      disabled: (caps) => !caps.canCollapse,
+      disabledLabel: () => "没有子节点可折叠",
     },
   ];
 
   const buttons = specs.map((spec) => {
     const button = el("button", "mm-toolbar-btn", bar);
     button.type = "button";
-    button.title = spec.label;
+    setTooltip(button, spec.label, { delay: TOOLTIP_DELAY_MS });
     button.setAttribute("aria-label", spec.label);
     setIcon(button, spec.icon);
     button.addEventListener("click", (event) => {
@@ -148,10 +184,17 @@ export function createToolbar(
   });
 
   return {
-    showFor(nodeEl: HTMLElement, canCollapse: boolean, isRoot: boolean): void {
+    showFor(nodeEl: HTMLElement, caps: NodeCapabilities): void {
       closeStyleMenu();
       for (const { spec, button } of buttons) {
-        button.disabled = spec.disabled?.(canCollapse, isRoot) ?? false;
+        const disabled = spec.disabled?.(caps) ?? false;
+        button.disabled = disabled;
+        // 禁用时把提示换成「为什么不能点」。用 Obsidian 的 setTooltip 而不是
+        // 原生 title：后者在 Electron 里要等 1–2 秒才浮出来，用户根本等不到。
+        // aria-label 一起改，否则读屏用户拿不到这条信息。
+        const label = disabled ? (spec.disabledLabel?.(caps) ?? spec.label) : spec.label;
+        setTooltip(button, label, { delay: TOOLTIP_DELAY_MS });
+        button.setAttribute("aria-label", label);
       }
       bar.show();
       placeNear(bar, nodeEl.getBoundingClientRect(), host.getBoundingClientRect(), {

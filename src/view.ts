@@ -10,8 +10,12 @@ import { serialize } from "./model/serializer";
 import {
   addChild,
   addSibling,
+  canAddSibling,
+  canMark,
+  canRemove,
   findNode,
   findParent,
+  hasHiddenContent,
   moveNode,
   navigate,
   removeNode,
@@ -564,7 +568,15 @@ export class MindmapView extends TextFileView {
       return;
     }
 
-    this.toolbar.showFor(element, node.children.length > 0, node.id === this.doc.root.id);
+    // 能力位一律来自 tree-ops：视图层不重新推导「哪些操作对这个节点有效」，
+    // 否则两处规则会漂移，出现「按钮亮着但点了没反应」。
+    this.toolbar.showFor(element, {
+      canCollapse: node.children.length > 0,
+      canAddSibling: canAddSibling(this.doc.root, node.id),
+      canRemove: canRemove(this.doc.root, node.id),
+      canMark: canMark(this.doc.root, node.id),
+      hasHiddenContent: hasHiddenContent(node),
+    });
   }
 
   private applyCamera(): void {
@@ -605,6 +617,8 @@ export class MindmapView extends TextFileView {
     if (target.zone === "child") {
       const node = findNode(doc.root, target.targetId);
       if (node === null) return;
+      // 落点索引交给 moveNode clamp：它会把下标夹到第一个标题子节点之前，
+      // 维护 list-before-heading 不变量（见 tree-ops.firstHeadingIndex）。
       this.applyDoc({
         ...doc,
         root: moveNode(doc.root, sourceId, target.targetId, node.children.length),
@@ -675,10 +689,11 @@ export class MindmapView extends TextFileView {
 
         let root: MindNode;
         if (intent.id === doc.root.id) {
-          // 根节点（H1 标题行）没有标记语法：setMarks/toggleMark 在 tree-ops
-          // 里对根 id 是有意的 no-op。如果这里仍然跑 parseMarks，会把用户敲进
-          // 标题里的 "(p1) " 之类前缀解析成 marks 再丢弃（setMarks 对根不生效），
-          // 造成文字被静默吞掉。根节点编辑当纯文本处理，不解析标记。
+          // 根节点不能带标记：文件没有 H1 行时根本没有可写的位置，
+          // setMarks/toggleMark 在 tree-ops 里对根 id 是有意的 no-op。如果这里
+          // 仍然跑 parseMarks，会把用户敲进标题里的 "(p1) " 之类前缀解析成
+          // marks 再丢弃（setMarks 对根不生效），造成文字被静默吞掉。根节点的
+          // 编辑当纯文本处理。文件里的 H2–H6 走下面的常规分支，可以带标记。
           root = setText(doc.root, intent.id, intent.text);
         } else {
           const { marks, rest } = parseMarks(intent.text);

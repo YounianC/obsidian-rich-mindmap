@@ -1,4 +1,4 @@
-import type { Bullet, Marks, MindNode } from "./types";
+import { isHeading, type Bullet, type Marks, type MindNode } from "./types";
 
 export function findNode(root: MindNode, id: string): MindNode | null {
   if (root.id === id) return root;
@@ -32,9 +32,54 @@ export function freshId(root: MindNode): string {
 
 /** 新节点跟着「未来的兄弟们」用同一个列表标记字符，避免在一个 `*` 列表里
  *  插进一行 `- `。根节点的 bullet 由 parser 取自文件里的第一个列表项，
- *  没有列表项时为 `-`（见 parser.ts）。 */
+ *  没有列表项时为 `-`（见 parser.ts）。
+ *
+ *  构造出的对象不带 `heading`，因此天然是列表项形态：解析双向（标题与列表项
+ *  都读成节点），写回单向（图上新建的节点永远是列表项）。 */
 function makeNode(id: string, text: string, bullet: Bullet): MindNode {
   return { id, text, marks: {}, children: [], collapsed: false, continuation: [], bullet };
+}
+
+/**
+ * 标题子节点的起始下标；没有标题子节点时等于 `children.length`。
+ *
+ * list-before-heading 不变量：一个标题节点的 children 里，列表项形态的子节点
+ * 必须全部排在标题形态的子节点之前。`# t` 的子节点若排成
+ * `[- a, ## A, - new]`，序列化出来 `- new` 落在 `## A` 之后，重新解析时它就
+ * 跑进 A 名下了——一次「加子节点」静默改变了树的形状。所有插入位置都要对
+ * 这个下标 clamp。
+ */
+function firstHeadingIndex(children: readonly MindNode[]): number {
+  const index = children.findIndex(isHeading);
+  return index < 0 ? children.length : index;
+}
+
+/**
+ * 该节点是否携带图上看不见的正文。
+ *
+ * 标题节点的 `continuation` 装着标题行之后、下一个节点行之前的一切——散文段落、
+ * 有序列表、表格、代码块。这些内容不在导图上显示，所以删除这个节点会删掉用户
+ * 看不见的东西。只有空行不算：`## A` 与它名下第一个列表项之间那个空行没有信息。
+ */
+export function hasHiddenContent(node: MindNode): boolean {
+  return node.continuation.some((line) => line.trim() !== "");
+}
+
+/** 能否删除：根节点不能（没有可删的位置），携带不可见正文的节点不能。 */
+export function canRemove(root: MindNode, id: string): boolean {
+  if (id === root.id) return false;
+  const target = findNode(root, id);
+  return target !== null && !hasHiddenContent(target);
+}
+
+/** 能否加兄弟：根节点没有兄弟；其余都可以（标题产出同级标题，列表项产出列表项）。 */
+export function canAddSibling(root: MindNode, id: string): boolean {
+  return id !== root.id && findNode(root, id) !== null;
+}
+
+/** 能否打标：根节点不能，见 setMarks 的说明。 */
+export function canMark(root: MindNode, id: string): boolean {
+  return id !== root.id && findNode(root, id) !== null;
 }
 
 /** 对树做一次映射式重建；`fn` 返回 null 表示该节点不变。 */
@@ -56,11 +101,14 @@ export function addChild(
   // 父节点找不到时（调用方传了无效 id）mapTree 不会插入任何东西，bullet 取值
   // 无关紧要，回退到父节点缺省的 `-`。
   const child = makeNode(newId, text, findNode(root, parentId)?.bullet ?? "-");
-  const next = mapTree(root, (node) =>
-    node.id === parentId
-      ? { ...node, collapsed: false, children: [...node.children, child] }
-      : null,
-  );
+  const next = mapTree(root, (node) => {
+    if (node.id !== parentId) return null;
+    // 插在第一个标题子节点之前，维护 list-before-heading 不变量。父节点没有
+    // 标题子节点时这个下标就是末尾，行为与改造前一致。
+    const children = [...node.children];
+    children.splice(firstHeadingIndex(children), 0, child);
+    return { ...node, collapsed: false, children };
+  });
   return { root: next, newId };
 }
 
@@ -71,15 +119,44 @@ export function addSibling(
 ): { root: MindNode; newId: string } {
   if (siblingId === root.id) return addChild(root, root.id, text);
 
+  const target = findNode(root, siblingId);
+  if (target === null) return { root, newId: siblingId };
+
   const newId = freshId(root);
-  // 兄弟节点直接沿用参照兄弟的标记字符。
-  const sibling = makeNode(newId, text, findNode(root, siblingId)?.bullet ?? "-");
-  const next = mapTree(root, (node) => {
-    const index = node.children.findIndex((c) => c.id === siblingId);
+  // 参照兄弟是标题时产出**同级标题**（复用同一个 prefix 与 level），不是列表项：
+  // 列表项写在 `## A` 之后，重新解析时会成为 A 的第一个子节点而不是兄弟。
+  // prefix 逐字复用而不是从 level 重算 `#`，与 serializer 的规则一致。
+  const node: MindNode = isHeading(target)
+    ? {
+        id: newId,
+        text,
+        marks: {},
+        children: [],
+        collapsed: false,
+        continuation: [],
+        bullet: target.bullet,
+        heading: {
+          level: target.heading.level,
+          prefix: target.heading.prefix,
+          // 新标题不继承参照兄弟的尾随空白，也还没有名下的列表块。
+          suffix: "",
+          indentUnit: null,
+        },
+      }
+    : makeNode(newId, text, target.bullet);
+
+  const next = mapTree(root, (parent) => {
+    const index = parent.children.findIndex((c) => c.id === siblingId);
     if (index < 0) return null;
-    const children = [...node.children];
-    children.splice(index + 1, 0, sibling);
-    return { ...node, children };
+    const children = [...parent.children];
+    // list-before-heading 不变量：插列表项时上界是第一个标题子节点；插标题时
+    // 下界是同一个位置（标题只能落在列表项之后）。
+    const boundary = firstHeadingIndex(children);
+    const at = isHeading(node)
+      ? Math.max(index + 1, boundary)
+      : Math.min(index + 1, boundary);
+    children.splice(at, 0, node);
+    return { ...parent, children };
   });
   return { root: next, newId };
 }
@@ -89,6 +166,12 @@ export function removeNode(
   id: string,
 ): { root: MindNode; nextSelectionId: string } {
   if (id === root.id) return { root, nextSelectionId: root.id };
+
+  // 携带图上不可见正文的节点不可删——删了用户看不见的东西。判据是
+  // continuation 里有没有非空行，不是「是不是标题节点」：`## A` 与它名下第一个
+  // 列表项之间那个空行没有信息，为它禁掉整个标题的删除是过宽的。
+  const target = findNode(root, id);
+  if (target !== null && hasHiddenContent(target)) return { root, nextSelectionId: id };
 
   const parent = findParent(root, id);
   if (parent === null) return { root, nextSelectionId: root.id };
@@ -111,8 +194,9 @@ export function setText(root: MindNode, id: string, text: string): MindNode {
 }
 
 export function setMarks(root: MindNode, id: string, marks: Marks): MindNode {
-  // H1 行没有行内标记语法；serializer 会忽略 root.marks，写回文件时会静默丢失，
-  // 所以在变更源头直接拒绝对根节点设置标记，保持空操作。
+  // 根节点不能带标记：文件没有 H1 行时（`MindDoc.hasHeading` 为假）根本没有
+  // 可写的位置，`serialize` 会跳过整行，标记静默丢失。所以在变更源头拒绝。
+  // 文件里的 H2–H6 可以带标记，写在 `#` 之后（见 serializer 的 composeLine）。
   if (id === root.id) return root;
   return mapTree(root, (node) =>
     node.id === id ? { ...node, marks: { ...marks } } : null,
@@ -121,7 +205,7 @@ export function setMarks(root: MindNode, id: string, marks: Marks): MindNode {
 
 /** patch 中的字段与当前值相同则清除，否则设置。只影响 patch 涉及的字段。 */
 export function toggleMark(root: MindNode, id: string, patch: Marks): MindNode {
-  // 同上：根节点没有可承载标记的行内语法，序列化时会静默丢弃，故也是空操作。
+  // 同上：根节点没有可靠的写入位置，序列化时会静默丢弃，故也是空操作。
   if (id === root.id) return root;
   return mapTree(root, (node) => {
     if (node.id !== id) return null;
@@ -157,7 +241,9 @@ export function moveNode(
   if (isDescendant(root, id, newParentId)) return root;
 
   const moving = findNode(root, id);
-  if (moving === null) return root;
+  // 同 removeNode：标题节点携带图上不可见的 continuation，且换父之后
+  // heading.prefix 与新位置的层级不再对应。
+  if (moving === null || isHeading(moving)) return root;
 
   const detached = mapTree(root, (node) =>
     node.children.some((c) => c.id === id)
@@ -168,7 +254,10 @@ export function moveNode(
   return mapTree(detached, (node) => {
     if (node.id !== newParentId) return null;
     const children = [...node.children];
-    children.splice(Math.max(0, Math.min(index, children.length)), 0, moving);
+    // 上界是第一个标题子节点而不是 children.length，维护 list-before-heading
+    // 不变量：落在标题之后的列表项在重新解析时会跑进那个标题名下。
+    const limit = firstHeadingIndex(children);
+    children.splice(Math.max(0, Math.min(index, limit)), 0, moving);
     return { ...node, collapsed: false, children };
   });
 }

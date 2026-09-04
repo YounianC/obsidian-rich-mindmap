@@ -1,6 +1,6 @@
 import { parseInline, type InlineToken } from "../model/inline";
 import { progressStage } from "../model/marks";
-import type { FlagColor, Marks, MindNode } from "../model/types";
+import { isHeading, type FlagColor, type Marks, type MindNode } from "../model/types";
 import { el, svgEl, textNode } from "./dom";
 
 /** 点击一个 wikilink 时的回调，由 view.ts 提供并接到
@@ -196,6 +196,11 @@ export function buildNodeEl(
 ): HTMLElement {
   const classes = ["mm-node", depthClass(depth), branchClass(branch)];
   if (isRoot) classes.push("mm-root");
+  // 标题节点不可删、不可拖、不能带标记，必须有视觉区分，否则用户不理解为什么
+  // 按 Delete 没反应。根节点也带这个类：drag.ts 用它做「不可拖」的判据，一个类
+  // 覆盖根与 H2–H6，取代原来单独判 mm-root 的写法。视觉差异靠 CSS 的
+  // `:not(.mm-root)` 排除根节点，根有自己的 .mm-root 样式。
+  if (isHeading(node)) classes.push("mm-heading");
   if (node.collapsed) classes.push("mm-collapsed");
 
   const element = el("div", classes.join(" "));

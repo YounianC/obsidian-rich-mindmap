@@ -14,6 +14,8 @@ An Obsidian plugin that turns an indented Markdown list into an editable mind ma
 
 Mindmap plugins in the Obsidian community mostly fall into two groups: **read-only previews** built on [markmap](https://markmap.js.org/) (they render a note as a mind map but you cannot edit on the map), and plugins built on Obsidian Canvas, whose data is `.canvas` JSON.
 
+This plugin uses the same *hierarchy model* as markmap — headings plus nested lists — so a note you have been previewing with one of those plugins opens here and is editable on the map. It deliberately does **not** implement markmap's own dialect: the `markmap:` frontmatter options and the `<!-- markmap: fold -->` magic comments. Collapse state here lives in the `mindmap-collapsed` frontmatter key, and having two sources for it would force write-back to arbitrate between them — which conflicts with the promise that write-back does only the five normalizations listed below.
+
 This one aims for:
 
 - **Editing directly on the map**, while the data remains a plain Markdown indented list — no proprietary format, no coordinates, no JSON
@@ -24,7 +26,7 @@ Editing is not unique to this plugin — several others manage it too. The mark 
 
 ## Example
 
-Copy [`examples/conference-talk.md`](examples/conference-talk.md) into your vault and open it in mindmap view. It exercises every feature: all seven priorities, all seven flag colours, progress across every stage, nesting four levels deep, wiki links, inline formatting, a parenthesized group that is *not* a mark, plus frontmatter keys and trailing prose that the plugin must leave alone.
+Copy [`examples/conference-talk.md`](examples/conference-talk.md) into your vault and open it in mindmap view. It exercises every feature: `##` / `###` sections forming the outer hierarchy, all seven priorities, all seven flag colours, progress across every stage, nested lists, wiki links, inline formatting, a parenthesized group that is *not* a mark, a collapsed heading recorded in `mindmap-collapsed`, plus frontmatter keys, a prose paragraph and an ordered list that the plugin carries along without showing.
 
 ```markdown
 ---
@@ -39,40 +41,62 @@ mindmap-collapsed:
 
 # Conference Talk: Taming Legacy Code
 
-- Outline
-  - (p1 100%) Opening story — the 3 a.m. pager incident
-  - (p1 67%) Core argument
-    - (p2) Legacy code is simply code without tests
-    - (p2 50%) A safety net comes before any refactor
-      - Seams and sprout methods
-      - Characterization tests
-    - (p3 33%) The rare case where a rewrite actually wins
-  - (p2 17%) Live demo
-    - (flag:red) Rehearse fully offline — venue wifi is never reliable
-    - (flag:orange) Record a fallback video just in case
-  - (p4 0%) Closing and call to action
-- Slides
-  - (p2 60%) Draft the deck in [[Talk Slides]]
-  - (p5) Before/after call graphs — the **one diagram** people remember
-  - (p6) Accessibility pass: contrast, alt text, `font-size >= 24pt`
-  - (p7 0%) Speaker notes
-- Rehearsal
-  - (p1 83%) Timing — 25 min talk, 5 min Q&A
-  - (p3 50%) Dry run with a colleague
-  - (flag:yellow) Record it and watch it back — *unpleasant but effective*
-  - (flag:green) Cut the ~~long tangent about monorepos~~
-- Logistics
-  - (flag:blue) Flights booked
-  - (flag:purple) Hotel confirmation filed under [[Travel 2026]]
-  - (flag:gray) Expense report — after the trip
-  - (draft) this line opens with parentheses but is not a mark
-- Follow-up
-  - (p4 0%) Publish the written version
-  - (p5 0%) Share slides and the demo repository
+## Outline
+
+- (p1 100%) Opening story — the 3 a.m. pager incident
+- (p1 67%) Core argument
+  - (p2) Legacy code is simply code without tests
+  - (p2 50%) A safety net comes before any refactor
+    - Seams and sprout methods
+    - Characterization tests
+  - (p3 33%) The rare case where a rewrite actually wins
+- (p2 17%) Live demo
+  - (flag:red) Rehearse fully offline — venue wifi is never reliable
+  - (flag:orange) Record a fallback video just in case
+- (p4 0%) Closing and call to action
+
+## Slides
+
+### Deck
+
+- (p2 60%) Draft the deck in [[Talk Slides]]
+- (p5) Before/after call graphs — the **one diagram** people remember
+
+### Polish
+
+- (p6) Accessibility pass: contrast, alt text, `font-size >= 24pt`
+- (p7 0%) Speaker notes
+
+## Rehearsal
+
+Run through it three times; the third one is the one that counts.
+
+- (p1 83%) Timing — 25 min talk, 5 min Q&A
+- (p3 50%) Dry run with a colleague
+- (flag:yellow) Record it and watch it back — *unpleasant but effective*
+- (flag:green) Cut the ~~long tangent about monorepos~~
+
+## Logistics
+
+- (flag:blue) Flights booked
+- (flag:purple) Hotel confirmation filed under [[Travel 2026]]
+- (flag:gray) Expense report — after the trip
+- (draft) this line opens with parentheses but is not a mark
+
+## Follow-up
+
+1. Ordered lists are carried along verbatim but never become nodes
+
+- (p4 0%) Publish the written version
+- (p5 0%) Share slides and the demo repository
 
 ## Notes
 
-Everything after the list block is left untouched by the plugin.
+Headings and nested lists together form the hierarchy, so every `##` above is a
+node on the map. What is *not* on the map: this paragraph, the `tags` and
+`speaker` keys in the frontmatter, and the ordered list under Follow-up — all
+carried along invisibly. Open this file in mindmap view, switch back to source,
+and it should come back byte for byte identical.
 ```
 
 ## Installation
@@ -98,7 +122,19 @@ Then copy (or symlink) `main.js`, `manifest.json` and `styles.css` into `<your v
 
 ## Data format
 
-The first level-1 heading is the root node; the first contiguous unordered list after it is the tree. Indentation depth defines the hierarchy.
+Top-of-line ATX headings (`#` through `######`) and nested unordered lists **together** form the hierarchy — the same hierarchy model [markmap](https://markmap.js.org/) uses, so notes written for a markmap-based preview plugin open here directly.
+
+- If the file's first node line is a level-1 heading, it becomes the root node. Otherwise the root node takes its text from the file name, and the first heading in the file becomes a child of it.
+- A heading of level L attaches to the nearest heading of level < L; if there is none, it attaches to the root. So `# T` followed by `### C` puts C under T (a level jump is fine), and a second `# X` in the same file attaches to the root rather than nesting.
+- Within a heading, nested unordered lists work as before: indentation depth defines the hierarchy, and the indent unit is remembered per heading.
+
+On a heading node, `Tab` adds a **list item** child, and `Enter` adds a **sibling heading** reusing the same `#` prefix. What a heading node cannot do:
+
+- **It cannot be dragged.** Moving `## A` under `## B` would be written as `## B` followed by `## A`, which re-reads as A being B's *sibling* — the move would be silently undone. The format cannot express "an H2 nested inside an H2" without rewriting the `#` count, and rewriting it is not allowed.
+- **It cannot be deleted while it carries content that is invisible on the map** (see the paragraph below). Deleting it would delete something you cannot see. When its only hidden content is a blank line, deletion is allowed and removes the whole section, subtree included.
+- **The root node specifically cannot carry marks**, because a file without an H1 has no line to write them to.
+
+Prose paragraphs, ordered lists, tables, code blocks and images under a heading are not shown on the map. They are carried along invisibly and replayed byte-for-byte on write-back — which is exactly why deleting a heading that carries them is refused.
 
 ### Inline marks
 
@@ -113,6 +149,8 @@ A parenthesized group at the very start of a node's text is parsed as marks **on
 Combine them freely: `- (p1 60% flag:blue) node text`. Order does not matter when reading.
 
 If the group contains anything unrecognised, the whole group is treated as ordinary text — `- (draft) some note` is not a mark.
+
+Marks work on heading nodes too, written after the `#`: `## (p2) Slides`. **Be aware that this leaks outside the plugin** in a way marks on list items do not — heading text is addressable in Obsidian, so `(p2)` will show up in the Outline panel, in search results and in the graph, and adding a mark to a heading breaks any existing `[[note#heading]]` reference to it. The root node's H1 is the one exception: marks are refused there, because a file without an H1 has nowhere to write them.
 
 ### Inline formatting
 
@@ -142,10 +180,18 @@ Opening a file in mindmap view and switching away can cause Obsidian to rewrite 
 1. A file not ending in a newline gains one.
 2. A loose list (blank lines between items) becomes compact.
 3. `CRLF` (`\r\n`) becomes `LF` (`\n`).
-4. List indentation follows whatever the file already uses — 2 spaces, 4 spaces, tabs are all preserved. Only when a single file mixes indentation styles, so that no one consistent unit can be inferred, is it rewritten to 2 spaces per level.
+4. List indentation follows whatever the file already uses — 2 spaces, 4 spaces, tabs are all preserved, **and the unit is inferred per heading**, so different sections may use different units without being rewritten. Only two cases are rewritten to 2 spaces per level: one list block mixes indentation styles internally so that no one consistent unit can be inferred; or several list blocks under the *same* heading disagree, in which case they are unified to the first unit that could be inferred.
 5. Inline marks are written in a fixed order: priority → progress → flag (`(flag:blue 60% p3)` becomes `(p3 60% flag:blue)`).
 
-Everything else is byte-for-byte stable — including `*` and `+` list markers (never converted to `-`), extra spaces in the heading line, trailing whitespace after the frontmatter fence, and all content outside the list block.
+Everything else is byte-for-byte stable — including `*` and `+` list markers (never converted to `-`), the `#` count and surrounding whitespace of every heading line, trailing whitespace after the frontmatter fence, and every line that is not a node line.
+
+### Known limits of the hierarchy parsing
+
+- `##` with no space after it is a valid empty ATX heading in CommonMark, but is not recognised here. That space requirement is precisely why a line starting with `#tag` is not mistaken for a heading.
+- A heading must start at column 0. CommonMark allows up to three leading spaces; those are not recognised, which is what keeps `  ## x` inside a list item's continuation from being mistaken for a heading.
+- Setext headings (`A` followed by `===`) are not recognised.
+- An ATX closing sequence is not stripped: `## A ##` yields the node text `A ##`. The bytes round-trip, but the text on the map carries the trailing `##`.
+- A list block's boundary is "a run of consecutive list items"; prose between two items joins the earlier item's continuation without ending the block. So in `- a` / blank / prose / `    - b`, the `- b` is treated as a child of `a`, whereas CommonMark would have ended the list and read it as a code block. Same root cause as the pre-existing 4-space limitation.
 
 ### Parse failure
 

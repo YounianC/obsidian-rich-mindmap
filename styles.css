@@ -128,6 +128,21 @@
   border-radius: 8px;
 }
 
+/* 标题节点（文件里的 H2–H6）：不可删、不可拖、不能带标记，用比 depth-1 的 600
+   更重的字重与列表项区分（`.mm-depth-1` 已经是 600，所以这里必须是 700 才在
+   每个深度上都能看出差别）。
+   `:not(.mm-root)` 排除根节点——根也带 mm-heading（drag.ts 拿它当不可拖的
+   判据），但根有自己的 .mm-root 样式，不该被这条覆盖。
+
+   **只改字重，不加 border、不加 padding。** 曾经在这里加过
+   `border-left: 2px` + `padding-left: 8px`，效果是错的：`.mm-node` 有
+   `border-radius: 4px`，边框跟着圆角走、上下两端鼓出来，渲染成一个圆头竖条，
+   看着像一块多余的阴影。这与上面第 12 条约束（下划线并入 SVG 边、不要给节点
+   加 CSS border）同源——节点的几何交给 SVG 边，CSS 只管排版。 */
+.mm-node.mm-heading:not(.mm-root) {
+  font-weight: 700;
+}
+
 .mm-node.mm-selected {
   background: var(--background-modifier-hover);
   box-shadow: 0 0 0 2px var(--interactive-accent);

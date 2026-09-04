@@ -106,8 +106,11 @@ export function attachDrag(host: DragHost): { cancel(): void } {
 
     const nodeEl = target.closest<HTMLElement>(".mm-node");
     const id = nodeEl?.dataset.id;
-    // 根节点不可拖动。
-    if (nodeEl === null || id === undefined || nodeEl.hasClass("mm-root")) return;
+    // 标题节点不可拖动（根节点也带 mm-heading，见 node-el.ts）：标题携带图上
+    // 不可见的 continuation，换父之后 heading.prefix 与新位置的层级也不再对应。
+    // tree-ops.moveNode 同样会拒绝标题源——那是正确性兜底，这里是让拖拽根本
+    // 不启动，而不是拖到一半松手后毫无反应。
+    if (nodeEl === null || id === undefined || nodeEl.hasClass("mm-heading")) return;
 
     state = {
       sourceId: id,

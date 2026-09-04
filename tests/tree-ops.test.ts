@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parse } from "../src/model/parser";
+import { serialize } from "../src/model/serializer";
 import {
   addChild,
   addSibling,
@@ -15,7 +16,7 @@ import {
   toggleMark,
   visibleNodes,
 } from "../src/model/tree-ops";
-import type { MindNode } from "../src/model/types";
+import { isHeading, type MindNode } from "../src/model/types";
 
 /** n0=根 / n1=A / n2=A1 / n3=A2 / n4=B */
 function tree(): MindNode {
@@ -228,5 +229,154 @@ describe("navigate", () => {
   it("折叠或无子节点时 right 返回 null", () => {
     expect(navigate(tree(), "n2", "right")).toBeNull();
     expect(navigate(toggleCollapse(tree(), "n1"), "n1", "right")).toBeNull();
+  });
+});
+
+/** `# t` / `- a` / `## H` / `- b` —— 根下先一个列表项，再一个标题节点。 */
+function headingTree(): MindNode {
+  return parse("# t\n\n- a\n## H\n\n- b\n", "我的导图.md").root;
+}
+
+describe("标题节点的编辑约束", () => {
+  it("headingTree 的形状符合预期", () => {
+    const root = headingTree();
+    expect(root.children.map((c) => c.text)).toEqual(["a", "H"]);
+    expect(isHeading(root.children[0])).toBe(false);
+    expect(isHeading(root.children[1])).toBe(true);
+    expect(root.children[1].children.map((c) => c.text)).toEqual(["b"]);
+  });
+
+  it("addChild 到标题父节点：新节点插在第一个标题子节点之前", () => {
+    const root = headingTree();
+    const { root: next, newId } = addChild(root, root.id, "新");
+    expect(next.children.map((c) => c.text)).toEqual(["a", "新", "H"]);
+    expect(isHeading(next.children[1])).toBe(false);
+    expect(next.children[1].id).toBe(newId);
+  });
+
+  it("addChild 到没有列表子节点的标题上，插在最前", () => {
+    const root = parse("# t\n\n## H\n", "我的导图.md").root;
+    const { root: next } = addChild(root, root.id, "新");
+    expect(next.children.map((c) => c.text)).toEqual(["新", "H"]);
+  });
+
+  it("addChild 到标题节点自己，新节点是列表项形态", () => {
+    const root = headingTree();
+    const h = root.children[1];
+    const { root: next, newId } = addChild(root, h.id, "新");
+    const added = findNode(next, newId);
+    expect(added?.text).toBe("新");
+    expect(isHeading(added as MindNode)).toBe(false);
+  });
+
+  it("addChild 到列表项父节点：追加到末尾，行为不变", () => {
+    const root = headingTree();
+    const { root: next } = addChild(root, root.children[0].id, "新");
+    expect(next.children[0].children.map((c) => c.text)).toEqual(["新"]);
+  });
+
+  it("addSibling 对标题节点产出同级标题，prefix 逐字复用", () => {
+    const root = headingTree();
+    const h = root.children[1];
+    const { root: next, newId } = addSibling(root, h.id, "新章节");
+    expect(next.children.map((c) => c.text)).toEqual(["a", "H", "新章节"]);
+    const added = findNode(next, newId) as MindNode;
+    expect(isHeading(added)).toBe(true);
+    expect(added.heading?.prefix).toBe("## ");
+    expect(added.heading?.level).toBe(2);
+    expect(added.heading?.suffix).toBe("");
+    expect(added.heading?.indentUnit).toBeNull();
+  });
+
+  it("addSibling 产出的标题落在列表项之后，维护 list-before-heading", () => {
+    const root = headingTree();
+    const { root: next } = addSibling(root, root.children[1].id, "新章节");
+    const forms = next.children.map((c) => (isHeading(c) ? "heading" : "item"));
+    expect(forms).toEqual(["item", "heading", "heading"]);
+  });
+
+  it("removeNode 允许删除没有携带不可见正文的标题节点", () => {
+    // headingTree 的 `## H` 后面紧跟一个空行，continuation 里没有非空行
+    const root = headingTree();
+    const h = root.children[1];
+    expect(h.continuation.filter((l) => l.trim() !== "")).toEqual([]);
+    const { root: next } = removeNode(root, h.id);
+    expect(next.children.map((c) => c.text)).toEqual(["a"]);
+  });
+
+  it("removeNode 拒绝删除携带不可见正文的标题节点", () => {
+    const root = parse("# t\n\n## H\n\n一段说明\n\n- b\n", "我的导图.md").root;
+    const h = root.children[0];
+    expect(h.continuation).toContain("一段说明");
+    const { root: next, nextSelectionId } = removeNode(root, h.id);
+    expect(next).toBe(root);
+    expect(nextSelectionId).toBe(h.id);
+  });
+
+  it("removeNode 同样拒绝携带不可见正文的列表项（判据不看形态）", () => {
+    const root = parse("# t\n\n- a\n1. 步骤\n- b\n", "我的导图.md").root;
+    const a = root.children[0];
+    expect(a.continuation).toEqual(["1. 步骤"]);
+    expect(removeNode(root, a.id).root).toBe(root);
+  });
+
+  it("moveNode 拒绝标题节点作为源", () => {
+    const root = headingTree();
+    expect(moveNode(root, root.children[1].id, root.id, 0)).toBe(root);
+  });
+
+  it("moveNode 落点索引不得越过第一个标题子节点", () => {
+    const root = headingTree();
+    const b = root.children[1].children[0];
+    // 要求插到根的 index 2（即 H 之后），必须被夹到 1
+    const next = moveNode(root, b.id, root.id, 2);
+    expect(next.children.map((c) => c.text)).toEqual(["a", "b", "H"]);
+    expect(next.children[1].children).toEqual([]);
+  });
+
+  it("setMarks / toggleMark 对非根标题节点生效", () => {
+    const root = headingTree();
+    const h = root.children[1];
+    expect(setMarks(root, h.id, { priority: 1 }).children[1].marks).toEqual({
+      priority: 1,
+    });
+    expect(toggleMark(root, h.id, { flag: "red" }).children[1].marks).toEqual({
+      flag: "red",
+    });
+  });
+
+  it("setMarks / toggleMark 对根节点仍是 no-op", () => {
+    const root = headingTree();
+    expect(setMarks(root, root.id, { priority: 1 })).toBe(root);
+    expect(toggleMark(root, root.id, { priority: 1 })).toBe(root);
+  });
+
+  it("标题节点带标记时写回到 `#` 之后", () => {
+    const doc = parse("# t\n\n## H\n\n- b\n", "我的导图.md");
+    const next = { ...doc, root: setMarks(doc.root, doc.root.children[0].id, { priority: 2 }) };
+    expect(serialize(next)).toBe("# t\n\n## (p2) H\n\n- b\n");
+  });
+
+  it("setMarks 对列表项照常生效", () => {
+    const root = headingTree();
+    const a = root.children[0];
+    expect(setMarks(root, a.id, { priority: 1 }).children[0].marks).toEqual({
+      priority: 1,
+    });
+  });
+
+  it("toggleCollapse 对标题节点照常生效", () => {
+    const root = headingTree();
+    const h = root.children[1];
+    expect(toggleCollapse(root, h.id).children[1].collapsed).toBe(true);
+  });
+
+  it("setText 对标题节点照常生效，形态不变", () => {
+    const root = headingTree();
+    const h = root.children[1];
+    const next = setText(root, h.id, "改名");
+    expect(next.children[1].text).toBe("改名");
+    expect(isHeading(next.children[1])).toBe(true);
+    expect(next.children[1].heading?.prefix).toBe("## ");
   });
 });
