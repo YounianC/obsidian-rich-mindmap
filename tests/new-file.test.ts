@@ -5,11 +5,11 @@ import { serialize } from "../src/model/serializer";
 
 describe("uniqueMindmapPath", () => {
   it("库根目录下不带前缀", () => {
-    expect(uniqueMindmapPath("/", () => false)).toBe("未命名思维导图.md");
+    expect(uniqueMindmapPath("/", "未命名思维导图", () => false)).toBe("未命名思维导图.md");
   });
 
   it("子目录下用 / 拼接", () => {
-    expect(uniqueMindmapPath("笔记/项目", () => false)).toBe(
+    expect(uniqueMindmapPath("笔记/项目", "未命名思维导图", () => false)).toBe(
       "笔记/项目/未命名思维导图.md",
     );
   });
@@ -20,12 +20,25 @@ describe("uniqueMindmapPath", () => {
       "未命名思维导图 1.md",
       "未命名思维导图 2.md",
     ]);
-    expect(uniqueMindmapPath("/", (p) => taken.has(p))).toBe("未命名思维导图 3.md");
+    expect(uniqueMindmapPath("/", "未命名思维导图", (p) => taken.has(p))).toBe("未命名思维导图 3.md");
+  });
+
+  it("英文基名同样工作，去重编号规则一致", () => {
+    const taken = new Set(["Untitled Mindmap.md", "Untitled Mindmap 1.md"]);
+    expect(uniqueMindmapPath("/", "Untitled Mindmap", (p) => taken.has(p))).toBe(
+      "Untitled Mindmap 2.md",
+    );
+  });
+
+  it("基名含空格与中英混排时不破坏编号后缀的位置", () => {
+    expect(uniqueMindmapPath("/", "My 导图", (p) => p === "My 导图.md")).toBe(
+      "My 导图 1.md",
+    );
   });
 
   it("存在性判断收到的是完整路径", () => {
     const seen: string[] = [];
-    uniqueMindmapPath("a/b", (p) => {
+    uniqueMindmapPath("a/b", "未命名思维导图", (p) => {
       seen.push(p);
       return seen.length < 2;
     });

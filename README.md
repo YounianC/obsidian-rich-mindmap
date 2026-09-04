@@ -4,8 +4,6 @@
 
 An Obsidian plugin that turns an indented Markdown list into an editable mind map, with priority, progress and flag marks. The source of truth stays a plain `.md` file — the same structured Markdown you and any AI read and write.
 
-> **Note on language:** the plugin's user interface is currently Chinese only (command names, tooltips, settings, error messages). There is no i18n yet. Everything below describes behaviour, not UI strings.
-
 ![The example file open in mindmap view: five colour-coded branches, priority badges, progress pies, flag markers, a collapsed branch showing a child count, and the floating toolbar next to the selected node.](docs/images/screenshot.png)
 
 *The [example file](examples/conference-talk.md) open in mindmap view.*
@@ -223,6 +221,14 @@ Selecting a node brings up a floating toolbar next to it: bold / italic / strike
 - **Toggle mindmap / source view** — the mindmap view also has a "switch to source" icon button in its header (top right) that does the same thing. Switching back to source manually is not undone by auto-open; the file only re-enters mindmap view the next time it is opened.
 - **Mark as mindmap (write frontmatter)** — writes `mindmap: true` so the file opens in mindmap view from then on (can be turned off in settings). On a file with no frontmatter it creates one. This command also normalizes the whole file's line endings to `LF` (normalization 3 above); visible content is unaffected.
 
+## Language
+
+The interface is available in English and Simplified Chinese. Settings → Rich Mindmap → **Interface language** offers three choices: **Follow Obsidian** (the default — it shows the language code it detected in parentheses), **简体中文**, and **English**. Switching takes effect immediately, including the names in the command palette.
+
+The default name of a file created by **New mindmap** follows the language too (`Untitled Mindmap.md` / `未命名思维导图.md`). Existing files are never renamed.
+
+Two limits worth knowing: `zh-TW` and `zh-HK` fall back to Simplified Chinese, and the plugin description in `manifest.json` is English only — Obsidian does not support localized manifests.
+
 ## Development
 
 ```bash
@@ -231,6 +237,7 @@ npm run dev            # esbuild watch
 npm test               # vitest
 npm run typecheck
 npm run check:purity
+npm run check:i18n
 ```
 
 `src/model/` (`collapse-state.ts`, `marks.ts`, `parser.ts`, `serializer.ts`, `tree-ops.ts`, `types.ts`) plus `src/view/layout.ts` and `src/view/camera.ts` form a pure-function layer with no dependency on the Obsidian API or the DOM. `npm run check:purity` enforces that boundary; all of it is unit tested.

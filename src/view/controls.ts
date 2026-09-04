@@ -1,4 +1,5 @@
 import { setIcon } from "obsidian";
+import { t } from "../i18n";
 import { el } from "./dom";
 
 export interface ControlsHandlers {
@@ -34,13 +35,13 @@ export function createControls(
   const bar = el("div", "mm-controls mm-no-pan", host);
 
   // 用箭头函数包一层再传，不把方法从 handlers 上拆下来（unbound-method）。
-  iconButton(bar, "maximize", "适应窗口", () => handlers.onFit());
-  iconButton(bar, "minus", "缩小", () => handlers.onZoomOut());
+  iconButton(bar, "maximize", t("controls.fit"), () => handlers.onFit());
+  iconButton(bar, "minus", t("controls.zoomOut"), () => handlers.onZoomOut());
 
   const readout = el("span", "mm-control-scale", bar);
   readout.textContent = "100%";
 
-  iconButton(bar, "plus", "放大", () => handlers.onZoomIn());
+  iconButton(bar, "plus", t("controls.zoomIn"), () => handlers.onZoomIn());
 
   return {
     setScale(scale: number): void {

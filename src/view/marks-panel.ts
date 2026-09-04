@@ -1,3 +1,4 @@
+import { t } from "../i18n";
 import { PROGRESS_STAGE_VALUES, progressStage } from "../model/marks";
 import { FLAG_COLORS, type Marks } from "../model/types";
 import { el } from "./dom";
@@ -56,18 +57,18 @@ export function openMarksPanel(
   // 否则在面板上按下并拖动会被画布当成平移手势处理。
   const panel = el("div", "mm-panel mm-no-pan", host);
 
-  const priorityRow = section(panel, "优先级");
+  const priorityRow = section(panel, t("marks.priority"));
   for (const priority of PRIORITIES) {
     optionButton(
       priorityRow,
       current.priority === priority,
-      `优先级 ${priority}`,
+      t("badge.priority", { priority }),
       () => handlers.onToggle({ priority }),
       (parent) => void buildPriorityBadge(priority, parent),
     );
   }
 
-  const progressRow = section(panel, "进度");
+  const progressRow = section(panel, t("marks.progress"));
   for (const progress of PROGRESS_STAGE_VALUES) {
     // 进度是唯一按「档位」而非精确值判定高亮/取消的一档：parseMarks 允许写入
     // 0-100 之间的任意整数（例如手写或 AI 写入的 (60%)），项目要求这类原值必须
@@ -84,18 +85,18 @@ export function openMarksPanel(
     optionButton(
       progressRow,
       active,
-      `进度 ${progress}%`,
+      t("badge.progress", { progress }),
       () => handlers.onToggle({ progress: active ? current.progress : progress }),
       (parent) => void buildProgressBadge(progress, parent),
     );
   }
 
-  const flagRow = section(panel, "旗帜");
+  const flagRow = section(panel, t("marks.flag"));
   for (const flag of FLAG_COLORS) {
     optionButton(
       flagRow,
       current.flag === flag,
-      `旗帜 ${flag}`,
+      t("badge.flag", { flag }),
       () => handlers.onToggle({ flag }),
       (parent) => void buildFlagBadge(flag, parent),
     );

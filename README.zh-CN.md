@@ -222,6 +222,14 @@ npm run build          # 生成 main.js
 - **切换思维导图 / 源码视图** —— 导图视图右上角标题栏还有一个「切换到源码模式」图标按钮，效果相同。手动切回源码后不会被自动打开逻辑再切回去，关掉标签页重新打开才会重新进入导图视图。
 - **标记为思维导图（写入 frontmatter）** —— 写入 `mindmap: true`，之后打开该文件自动进入导图视图（可在设置中关闭）；对没有 frontmatter 的文件执行会新建一个 frontmatter 块。执行这条命令会把整个文件的换行符统一成 `LF`（即上面「写回归一化」里的 `CRLF` 那条），正文的可见内容不受影响。
 
+## 界面语言
+
+界面支持英文与简体中文。设置 → Rich Mindmap → **界面语言** 三选：**跟随 Obsidian**（默认，括号里显示检测到的语言码）、**简体中文**、**English**。切换立即生效，命令面板里的命令名也会跟着变。
+
+「新建思维导图」创建的文件默认名同样跟随语言（`未命名思维导图.md` / `Untitled Mindmap.md`）。已有文件永不被改名。
+
+两条值得知道的局限：`zh-TW` / `zh-HK` 归到简体中文；`manifest.json` 里的插件描述只有英文——Obsidian 不支持本地化 manifest。
+
 ## 开发
 
 ```bash
@@ -230,6 +238,7 @@ npm run dev        # esbuild watch
 npm test           # vitest
 npm run typecheck
 npm run check:purity
+npm run check:i18n
 ```
 
 `src/model/`（`collapse-state.ts`、`marks.ts`、`parser.ts`、`serializer.ts`、`tree-ops.ts`、`types.ts`）与 `src/view/layout.ts`、`src/view/camera.ts` 是纯函数层，不依赖 Obsidian API 与 DOM，由 `npm run check:purity` 强制校验，全部有单元测试覆盖。

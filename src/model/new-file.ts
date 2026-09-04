@@ -1,21 +1,23 @@
 import { setMindmapFlag } from "./collapse-state";
 
-/** 新建思维导图文件的默认基名（不含扩展名与编号）。 */
-export const DEFAULT_MINDMAP_BASENAME = "未命名思维导图";
-
 /**
  * 在 folderPath 下为新思维导图挑一个不重复的路径。
  * 规则与 Obsidian 自带「未命名 / 未命名 1 / 未命名 2」一致：先试无编号，再从 1 起递增。
  * folderPath 为 "/" 或 "" 时表示库根目录，返回的路径不带目录前缀。
  * exists 由调用方注入（通常是 vault.getAbstractFileByPath），保持本模块无 obsidian 依赖。
+ *
+ * basename 是**必需参数，不给默认值**：它跟随界面语言（见 i18n 的
+ * `newFile.basename`），一旦在这里留一个中文默认值，调用方漏传时会静默用中文，
+ * i18n 就形同虚设。本模块在纯函数层，不能自己去读语言。
  */
 export function uniqueMindmapPath(
   folderPath: string,
+  basename: string,
   exists: (path: string) => boolean,
 ): string {
   const prefix = folderPath === "/" || folderPath === "" ? "" : `${folderPath}/`;
   for (let n = 0; ; n++) {
-    const base = n === 0 ? DEFAULT_MINDMAP_BASENAME : `${DEFAULT_MINDMAP_BASENAME} ${n}`;
+    const base = n === 0 ? basename : `${basename} ${n}`;
     const path = `${prefix}${base}.md`;
     if (!exists(path)) return path;
   }

@@ -16,7 +16,7 @@
 
 `src/model/**` 加 `src/view/layout.ts`、`src/view/camera.ts` 不得 `import obsidian`，不得出现 `document` / `window` / `HTMLElement`。
 
-`npm run check:purity` 强制校验（覆盖范围写在 `scripts/check-purity.mjs` 的 `PURE_DIRS` / `PURE_FILES`）。这条边界是整个测试策略的地基：纯函数层有 237 个单测，视图层一个自动化测试都没有。
+`npm run check:purity` 强制校验（覆盖范围写在 `scripts/check-purity.mjs` 的 `PURE_DIRS` / `PURE_FILES`）。这条边界是整个测试策略的地基：纯函数层有 341 个单测，视图层一个自动化测试都没有。
 
 ### 2. 只允许五条写回归一化
 
@@ -110,7 +110,10 @@
 ### 10. 其他
 
 - TypeScript `strict: true`，不用 `any`（必要时 `unknown` + 类型守卫）。
-- 面向用户的字符串一律中文。
+- **面向用户的字符串一律走 `t()`（`src/i18n.ts`），不写死任何语言。** 中文表是 key 的唯一来源，英文表声明为 `Record<MessageKey, string>`，漏译是编译错误。`npm run check:i18n` 扫 `src/main.ts` / `src/settings.ts` / `src/view.ts` / `src/view/**` 的字符串字面量，发现中文即失败——**注释不受约束，只有字面量受约束**。报出残留时去补 `t()`，**不要放宽扫描范围或加豁免名单**，那等于把这道门禁废掉。
+- `src/i18n.ts` 既不 `import obsidian`（`getLanguage()` 只在 `main.ts` 一处调用，结果作为参数传进 `resolveLocale`），也不放进 `src/model/`（`t()` 有模块级可变状态、不是纯函数，塞进纯函数层是在骗人）。
+- **`t()` 自己不通知任何人。** 语言变更后必须由 `main.ts` 的 `applyLanguage()` 重注册命令并让各导图视图 `refreshLocale()`。已渲染的 DOM 不会自己更新——`toolbar.ts` 的 `specs` 就是在 `createToolbar()` 函数体内求值的，不重建图层文案不会变。
+- **命令重注册的 id 必须与 `addCommand` 逐字一致**（`MindmapPlugin.COMMAND_IDS`）。写错会表现为命令重复出现或直接消失，五条门禁都看不到，只能人工验。
 - TS 里不写颜色字面量；CSS 颜色取自 Obsidian 变量或本插件的 `--mm-*` 调色板（只有调色板的**定义**可以是字面量）。阴影用 `var(--shadow-s)`。
 - 进度值原样保留，永不改写成档位代表值。面板的高亮判断按 `progressStage()` 比档位，点击已生效项时传节点的**精确当前值**让 `toggleMark` 的相等判断命中从而清除。
 
@@ -142,14 +145,15 @@
 
 ```bash
 npm run typecheck     # tsc --noEmit
-npm test              # vitest run（241 个）
+npm test              # vitest run
 npm run build         # 生成 main.js
 npm run check:purity  # 纯函数层边界
+npm run check:i18n    # 界面文字未写死中文
 ```
 
 **任何手写的、带回溯/递归下降的 parser，只交正确性测试不够，必须同时带对抗性长输入测试**：既要有时间上限断言（防止病态输入卡死主线程——`parseSpan` 的记忆化就是补这个洞的），也要有结构化输出断言（防止退化成"整段都当字面文本"却因为 round-trip 恒等而蒙混过关）。这不是假设性的顾虑：`src/model/inline.ts` 在拿到 38 个全绿的正确性测试之后，仍然让一个真实用户输入（几千字符、夹杂大量星号波浪线）把 Obsidian 主线程冻结了 15 秒以上，直到专门补了病态输入的性能回归测试才被发现。
 
-`npm run check:purity` **看不到**性能/结构化输出这类问题，它只校验目录边界（有没有 `import "obsidian"`、有没有碰 DOM），跟一个纯函数在某些输入下会不会变慢或退化没有关系——这条门禁能保证的只是"这段代码可以被单测覆盖"，不保证"它真的被覆盖到了对的场景"。
+`npm run check:i18n` 只能保证「没有写死的中文」，**保证不了英文译文是对的**——译文质量只能人工看，机器无从判断。同理 `npm run check:purity` **看不到**性能/结构化输出这类问题，它只校验目录边界（有没有 `import "obsidian"`、有没有碰 DOM），跟一个纯函数在某些输入下会不会变慢或退化没有关系——这条门禁能保证的只是"这段代码可以被单测覆盖"，不保证"它真的被覆盖到了对的场景"。
 
 ## 发布
 

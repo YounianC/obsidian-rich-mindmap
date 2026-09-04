@@ -1,4 +1,5 @@
 import { setIcon, setTooltip } from "obsidian";
+import { t, type MessageKey } from "../i18n";
 import { el } from "./dom";
 import { placeNear } from "./popover";
 
@@ -49,10 +50,12 @@ interface ButtonSpec {
  *  tooltip 可以把延迟压到几乎无感。 */
 const TOOLTIP_DELAY_MS = 120;
 
-const STYLE_MARKERS: readonly { marker: "**" | "*" | "~~"; label: string }[] = [
-  { marker: "**", label: "加粗" },
-  { marker: "*", label: "斜体" },
-  { marker: "~~", label: "删除线" },
+/** 存 key 而不是文案：这是模块级常量，存文案会在模块加载时就把语言固定住，
+ *  之后 setLocale 不再生效。取值在下面的样式菜单里现算。 */
+const STYLE_MARKERS: readonly { marker: "**" | "*" | "~~"; labelKey: MessageKey }[] = [
+  { marker: "**", labelKey: "toolbar.style.bold" },
+  { marker: "*", labelKey: "toolbar.style.italic" },
+  { marker: "~~", labelKey: "toolbar.style.strike" },
 ];
 
 /** 选中节点时贴在节点上方（空间不足时翻到下方）出现的工具栏。 */
@@ -88,31 +91,34 @@ export function createToolbar(
     document.removeEventListener("keydown", onStyleMenuKeyDown, true);
   };
 
+  // specs 在函数体内构造，所以这些 t() 拿到的是「创建工具栏那一刻」的语言。
+  // 语言变更后由 view.ts 的 refreshLocale() 重建图层、重新走一遍 createToolbar，
+  // 文案才会更新——t() 自己不通知任何人（见 i18n.ts 的 setLocale 说明）。
   const specs: ButtonSpec[] = [
-    { icon: "corner-down-right", label: "添加子节点", action: () => handlers.onAddChild() },
+    { icon: "corner-down-right", label: t("toolbar.addChild"), action: () => handlers.onAddChild() },
     {
       icon: "plus",
-      label: "添加兄弟节点",
+      label: t("toolbar.addSibling"),
       action: () => handlers.onAddSibling(),
       // 根节点没有兄弟。标题节点可以——addSibling 对它产出一个同级标题。
       disabled: (caps) => !caps.canAddSibling,
-      disabledLabel: () => "根节点没有兄弟节点",
+      disabledLabel: () => t("toolbar.addSibling.blockedRoot"),
     },
     {
       icon: "trash-2",
-      label: "删除节点",
+      label: t("toolbar.remove"),
       action: () => handlers.onRemove(),
       // 携带图上不可见正文（标题下的散文、代码块、表格）的节点不可删，
       // 否则会删掉用户看不见的东西。见 tree-ops.hasHiddenContent。
       disabled: (caps) => !caps.canRemove,
       disabledLabel: (caps) =>
         caps.hasHiddenContent
-          ? "该节点携带图上不可见的正文（标题下的散文、有序列表、代码块等），删除会连带丢掉这些内容"
-          : "根节点不能删除",
+          ? t("toolbar.remove.blockedHidden")
+          : t("toolbar.remove.blockedRoot"),
     },
     {
       icon: "type",
-      label: "文字样式",
+      label: t("toolbar.textStyle"),
       isStyleToggle: true,
       action: (button) => {
         if (styleMenu !== null) {
@@ -121,10 +127,10 @@ export function createToolbar(
         }
         // mm-no-pan：同上，菜单本身也是画布上的界面元素。
         const menu = el("div", "mm-style-menu mm-no-pan", host);
-        for (const { marker, label } of STYLE_MARKERS) {
+        for (const { marker, labelKey } of STYLE_MARKERS) {
           const item = el("button", "mm-style-item", menu);
           item.type = "button";
-          item.textContent = label;
+          item.textContent = t(labelKey);
           item.addEventListener("click", (event) => {
             event.preventDefault();
             event.stopPropagation();
@@ -139,25 +145,25 @@ export function createToolbar(
     },
     {
       icon: "circle-check-big",
-      label: "标记",
+      label: t("toolbar.marks"),
       action: (button) => handlers.onMarks(button.getBoundingClientRect()),
       // 根节点不能带标记：文件没有 H1 行时根本没有可写的位置，toggleMark 对根
       // id 是有意的 no-op（见 model/tree-ops.ts）。若不在这里禁用，选中根节点
       // 打开面板后点任何选项都会静默失败。文件里的 H2–H6 可以带标记。
       disabled: (caps) => !caps.canMark,
-      disabledLabel: () => "根节点不能带标记：文件里没有一级标题时无处写回",
+      disabledLabel: () => t("toolbar.marks.blockedRoot"),
     },
     {
       icon: "link",
-      label: "插入链接",
+      label: t("toolbar.link"),
       action: (button) => handlers.onLink(button.getBoundingClientRect()),
     },
     {
       icon: "fold-vertical",
-      label: "折叠子树",
+      label: t("toolbar.collapse"),
       action: () => handlers.onToggleCollapse(),
       disabled: (caps) => !caps.canCollapse,
-      disabledLabel: () => "没有子节点可折叠",
+      disabledLabel: () => t("toolbar.collapse.blocked"),
     },
   ];
 

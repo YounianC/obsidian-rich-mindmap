@@ -1,5 +1,6 @@
-import { MarkdownView, Notice, Plugin, TFile, TFolder, type WorkspaceLeaf } from "obsidian";
+import { getLanguage, MarkdownView, Notice, Plugin, TFile, TFolder, type WorkspaceLeaf } from "obsidian";
 import { setMindmapFlag } from "./model/collapse-state";
+import { resolveLocale, setLocale, t } from "./i18n";
 import { newMindmapContent, uniqueMindmapPath } from "./model/new-file";
 import {
   DEFAULT_SETTINGS,
@@ -21,50 +22,29 @@ export default class MindmapPlugin extends Plugin {
   override async onload(): Promise<void> {
     await this.loadSettings();
 
+    // 语言必须在**任何**读 t() 的东西之前定下来，所以它紧跟 loadSettings()：
+    // - 命令名在 addCommand 时求值；
+    // - 设置项的 name/desc/下拉选项在 getSettingDefinitions() 里求值，而声明式
+    //   设置的存在意义就是「能被设置面板搜索索引到」，Obsidian 会在
+    //   addSettingTab 注册时就调一次去建索引。曾因为 setLocale 排在
+    //   addSettingTab 之后，导致设置页出现「语言那一行是中文、其余行是英文」
+    //   的混排——索引拿到的是默认中文，渲染时才拿到正确语言。
+    setLocale(resolveLocale(this.settings.language, getLanguage()));
+
     this.registerView(
       MINDMAP_VIEW_TYPE,
       (leaf: WorkspaceLeaf) => new MindmapView(leaf),
     );
 
     this.addSettingTab(new MindmapSettingTab(this.app, this));
-
-    this.addCommand({
-      id: "toggle-mindmap-view",
-      name: "切换思维导图 / 源码视图",
-      checkCallback: (checking: boolean) => {
-        // 用「哪个视图持有目标文件」反推 leaf，而不是用 getMostRecentLeaf() 去配
-        // getActiveFile()：分屏或侧栏聚焦时二者可能指向不同的 leaf，导致命令误
-        // 切一个没有显示该文件的面板。leaf 可能当前是 MarkdownView 也可能是
-        // MindmapView，两种都要处理。
-        const view =
-          this.app.workspace.getActiveViewOfType(MarkdownView) ??
-          this.app.workspace.getActiveViewOfType(MindmapView);
-        const file = view?.file ?? null;
-        if (view === null || file === null || file.extension !== "md") return false;
-        if (checking) return true;
-        void this.toggleView(view.leaf, file);
-        return true;
-      },
-    });
-
-    this.addCommand({
-      id: "mark-as-mindmap",
-      name: "标记为思维导图（写入 frontmatter）",
-      checkCallback: (checking: boolean) => {
-        const file = this.app.workspace.getActiveFile();
-        if (file === null || file.extension !== "md") return false;
-        if (checking) return true;
-        void this.markAsMindmap(file);
-        return true;
-      },
-    });
+    this.registerCommands();
 
     this.registerEvent(
       this.app.workspace.on("file-menu", (menu, file) => {
         if (file instanceof TFolder) {
           menu.addItem((item) =>
             item
-              .setTitle("新建思维导图")
+              .setTitle(t("menu.newMindmap"))
               .setIcon("git-fork")
               .onClick(() => void this.createMindmapInFolder(file)),
           );
@@ -73,7 +53,7 @@ export default class MindmapPlugin extends Plugin {
         if (!(file instanceof TFile) || file.extension !== "md") return;
         menu.addItem((item) =>
           item
-            .setTitle("以思维导图打开")
+            .setTitle(t("menu.openAsMindmap"))
             .setIcon("git-fork")
             .onClick(() => this.openAsMindmap(file)),
         );
@@ -138,6 +118,74 @@ export default class MindmapPlugin extends Plugin {
     }
   }
 
+  /** 两个命令的 id。removeCommand 要用，必须与 addCommand 的 id 逐字一致。 */
+  private static readonly COMMAND_IDS = [
+    "toggle-mindmap-view",
+    "mark-as-mindmap",
+  ] as const;
+
+  /**
+   * 注册两个命令。可重复调用——`applyLanguage()` 换语言时先移除再注册，
+   * 让命令面板里的名字立即变成新语言。
+   */
+  private registerCommands(): void {
+    this.addCommand({
+      id: "toggle-mindmap-view",
+      name: t("command.toggleView"),
+      checkCallback: (checking: boolean) => {
+        // 用「哪个视图持有目标文件」反推 leaf，而不是用 getMostRecentLeaf() 去配
+        // getActiveFile()：分屏或侧栏聚焦时二者可能指向不同的 leaf，导致命令误
+        // 切一个没有显示该文件的面板。leaf 可能当前是 MarkdownView 也可能是
+        // MindmapView，两种都要处理。
+        const view =
+          this.app.workspace.getActiveViewOfType(MarkdownView) ??
+          this.app.workspace.getActiveViewOfType(MindmapView);
+        const file = view?.file ?? null;
+        if (view === null || file === null || file.extension !== "md") return false;
+        if (checking) return true;
+        void this.toggleView(view.leaf, file);
+        return true;
+      },
+    });
+
+    this.addCommand({
+      id: "mark-as-mindmap",
+      name: t("command.markAsMindmap"),
+      checkCallback: (checking: boolean) => {
+        const file = this.app.workspace.getActiveFile();
+        if (file === null || file.extension !== "md") return false;
+        if (checking) return true;
+        void this.markAsMindmap(file);
+        return true;
+      },
+    });
+  }
+
+  /**
+   * 按当前设置确定界面语言，并让它在所有已渲染的界面上生效。
+   *
+   * `t()` 自己不通知任何人（见 i18n.ts 的 setLocale 说明），所以这里要显式做
+   * 三件事：
+   * 1. 设语言；
+   * 2. 重注册命令——`removeCommand` 的 id 必须与注册时逐字一致，写错会表现为
+   *    命令重复出现或直接消失，而五条门禁看不到这一点，只能人工验；
+   * 3. 让每个已打开的导图视图重建图层（`refreshLocale()` 走的是
+   *    `layers = null` + `render()`，与 setViewData 同一条路径）。
+   */
+  applyLanguage(): void {
+    setLocale(resolveLocale(this.settings.language, getLanguage()));
+
+    for (const id of MindmapPlugin.COMMAND_IDS) {
+      this.removeCommand(id);
+    }
+    this.registerCommands();
+
+    for (const leaf of this.app.workspace.getLeavesOfType(MINDMAP_VIEW_TYPE)) {
+      const view = leaf.view;
+      if (view instanceof MindmapView) view.refreshLocale();
+    }
+  }
+
   /** 在当前面板用思维导图视图打开文件。 */
   private openAsMindmap(file: TFile): Promise<void> {
     return this.app.workspace.getLeaf(false).setViewState({
@@ -154,14 +202,15 @@ export default class MindmapPlugin extends Plugin {
   private async createMindmapInFolder(folder: TFolder): Promise<void> {
     const path = uniqueMindmapPath(
       folder.path,
-      (candidate) => this.app.vault.getAbstractFileByPath(candidate) !== null,
+      t("newFile.basename"),
+      (candidate: string) => this.app.vault.getAbstractFileByPath(candidate) !== null,
     );
     const title = path.slice(path.lastIndexOf("/") + 1).replace(/\.md$/, "");
     let file: TFile;
     try {
       file = await this.app.vault.create(path, newMindmapContent(title));
     } catch (error) {
-      new Notice(`新建思维导图失败：${String(error)}`);
+      new Notice(t("notice.createFailed", { error: String(error) }));
       return;
     }
     await this.openAsMindmap(file);
@@ -188,7 +237,7 @@ export default class MindmapPlugin extends Plugin {
       const updated = setMindmapFlag(match[1], true);
       return `---\n${updated}\n---${match[2]}\n${content.slice(match[0].length)}`;
     });
-    new Notice("已标记为思维导图。");
+    new Notice(t("notice.marked"));
   }
 
   private async toggleView(leaf: WorkspaceLeaf, file: TFile): Promise<void> {
@@ -203,7 +252,7 @@ export default class MindmapPlugin extends Plugin {
         active: true,
       });
     } catch (error) {
-      new Notice(`切换视图失败：${String(error)}`);
+      new Notice(t("notice.toggleFailed", { error: String(error) }));
     } finally {
       this.flipping.delete(file.path);
     }
@@ -218,6 +267,14 @@ export default class MindmapPlugin extends Plugin {
     this.settings = {
       autoOpen:
         typeof stored.autoOpen === "boolean" ? stored.autoOpen : DEFAULT_SETTINGS.autoOpen,
+      // 同上：只接受三个已知取值，其余（含手改成别的字符串、或旧版本没有这个
+      // 键）一律回落到 "auto"。收窄成联合类型也让 resolveLocale 不用兜底。
+      language:
+        stored.language === "auto" ||
+        stored.language === "zh" ||
+        stored.language === "en"
+          ? stored.language
+          : DEFAULT_SETTINGS.language,
     };
   }
 

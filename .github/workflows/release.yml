@@ -67,6 +67,9 @@ jobs:
       - name: 纯函数层边界校验
         run: npm run check:purity
 
+      - name: 界面文字 i18n 校验
+        run: npm run check:i18n
+
       - name: 构建
         run: npm run build
 

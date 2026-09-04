@@ -1,6 +1,6 @@
 {
   "name": "rich-mindmap",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "directories": {
     "doc": "docs"
   },
@@ -9,7 +9,8 @@
     "build": "node esbuild.config.mjs",
     "dev": "node esbuild.config.mjs --watch",
     "typecheck": "tsc --noEmit",
-    "check:purity": "node scripts/check-purity.mjs"
+    "check:purity": "node scripts/check-purity.mjs",
+    "check:i18n": "node scripts/check-i18n.mjs"
   },
   "keywords": [],
   "author": "",

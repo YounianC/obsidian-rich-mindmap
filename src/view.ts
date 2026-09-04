@@ -25,6 +25,7 @@ import {
   toggleMark,
 } from "./model/tree-ops";
 import { parseMarks } from "./model/marks";
+import { t } from "./i18n";
 import type { Marks, MindDoc, MindNode } from "./model/types";
 import {
   cssTransform,
@@ -94,7 +95,7 @@ export class MindmapView extends TextFileView {
     this.root = el("div", "mindmap-view", this.contentEl);
     // 视图标题栏右上角的动作按钮（与 Obsidian 自带视图的图标按钮同一位置）。
     // 命令面板里的「切换思维导图 / 源码视图」仍然可用，这是它的鼠标入口。
-    this.addAction("file-text", "切换到源码模式", () => this.switchToSource());
+    this.addAction("file-text", t("view.switchToSource"), () => this.switchToSource());
   }
 
   /**
@@ -112,12 +113,27 @@ export class MindmapView extends TextFileView {
     });
   }
 
+  /**
+   * 语言变更后重建图层，让工具栏、缩放控件、标记面板、错误卡片换上新语言。
+   *
+   * 置 `layers = null` 再 `render()` 是**唯一允许的重建入口**，与 `setViewData`
+   * 完全同一条路径：`render()` 的重建分支靠 `eventsAttached` 守卫防止在
+   * `this.root` 上堆叠监听器（AGENTS.md 第 6 条——堆叠会让一个滚轮档位变成
+   * `factor^N` 倍缩放）。不要另写一套重建逻辑。
+   *
+   * 视口与选中保留：`render()` 不动 `camera` 与 `selectedId`。
+   */
+  refreshLocale(): void {
+    this.layers = null;
+    this.render();
+  }
+
   override getViewType(): string {
     return MINDMAP_VIEW_TYPE;
   }
 
   override getDisplayText(): string {
-    return this.file?.basename ?? "思维导图";
+    return this.file?.basename ?? t("view.displayTitle");
   }
 
   override getIcon(): string {
@@ -185,11 +201,11 @@ export class MindmapView extends TextFileView {
       this.clearSaveTimer();
       this.resetDocBoundState();
       if (hadUnsavedEdit || hadPendingSave) {
-        new Notice("文件已在外部修改，以磁盘内容为准。");
+        new Notice(t("notice.externalChange"));
       }
     }
 
-    const fileName = this.file?.name ?? "未命名.md";
+    const fileName = this.file?.name ?? t("view.untitledFile");
     try {
       const parsed = parse(data, fileName);
       this.doc = {
@@ -430,15 +446,15 @@ export class MindmapView extends TextFileView {
     // 画布上操作：触发平移（.mm-panning、光标变成 grabbing）和取消选中。
     const wrap = el("div", "mm-error mm-no-pan", this.root);
     const title = el("div", "mm-error-title", wrap);
-    title.textContent = "无法解析为思维导图";
+    title.textContent = t("view.error.title");
     const detail = el("div", "mm-error-detail", wrap);
     detail.textContent = message;
     const hint = el("div", "mm-error-detail", wrap);
-    hint.textContent = "文件未被修改。可切到源码模式检查内容。";
+    hint.textContent = t("view.error.hint");
 
     const button = el("button", "mm-error-btn", wrap);
     button.type = "button";
-    button.textContent = "切换到源码模式";
+    button.textContent = t("view.switchToSource");
     button.addEventListener("click", () => this.switchToSource());
   }
 
@@ -504,7 +520,7 @@ export class MindmapView extends TextFileView {
     this.inputPopover?.close();
     this.overlayOwnerId = id;
     this.inputPopover = openInputPopover(this.root, anchor, {
-      placeholder: "链接目标（笔记名）",
+      placeholder: t("view.link.placeholder"),
       onSubmit: (value) => {
         if (this.doc === null) return;
         const node = findNode(this.doc.root, id);

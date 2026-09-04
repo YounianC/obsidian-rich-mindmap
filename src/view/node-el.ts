@@ -1,4 +1,5 @@
 import { parseInline, type InlineToken } from "../model/inline";
+import { t } from "../i18n";
 import { progressStage } from "../model/marks";
 import { isHeading, type FlagColor, type Marks, type MindNode } from "../model/types";
 import { el, svgEl, textNode } from "./dom";
@@ -40,14 +41,14 @@ export function buildPriorityBadge(
 ): HTMLElement {
   const badge = el("span", `mm-mark mm-priority mm-priority-${priority}`, parent);
   badge.textContent = String(priority);
-  badge.title = `优先级 ${priority}`;
+  badge.title = t("badge.priority", { priority });
   return badge;
 }
 
 export function buildProgressBadge(progress: number, parent: HTMLElement): HTMLElement {
   const stage = progressStage(progress);
   const wrap = el("span", "mm-mark mm-progress", parent);
-  wrap.title = `进度 ${progress}%`;
+  wrap.title = t("badge.progress", { progress });
 
   const svg = svgEl("svg", "mm-progress-svg", wrap);
   svg.setAttribute("viewBox", "0 0 16 16");
@@ -74,7 +75,7 @@ export function buildProgressBadge(progress: number, parent: HTMLElement): HTMLE
 
 export function buildFlagBadge(flag: FlagColor, parent: HTMLElement): HTMLElement {
   const wrap = el("span", `mm-mark mm-flag mm-flag-${flag}`, parent);
-  wrap.title = `旗帜 ${flag}`;
+  wrap.title = t("badge.flag", { flag });
   const svg = svgEl("svg", "mm-flag-svg", wrap);
   svg.setAttribute("viewBox", "0 0 16 16");
   const path = svgEl("path", "mm-flag-glyph", svg);
@@ -222,7 +223,7 @@ export function buildNodeEl(
     // 数字圆点——用户反馈那和优先级角标（同样是圆点+数字）分不清。
     const badge = el("span", "mm-collapse-badge", element);
     badge.textContent = `▸ ${node.children.length}`;
-    badge.title = `已折叠 ${node.children.length} 个子节点，点击展开`;
+    badge.title = t("badge.collapsed", { count: node.children.length });
     // 事件传播（AGENTS.md 第 6 条）：不拦 pointerdown——平移守卫本就在
     // .mm-node 上短路（不影响画布），选中守卫选中这个节点是期望行为，拖拽
     // 要移动 4px 才激活，单次点击够不到那个阈值。但 click 是我们真正触发
