@@ -14,7 +14,10 @@ function composeLine(node: MindNode): string {
 function serializeNodes(nodes: readonly MindNode[], depth: number): string {
   let out = "";
   for (const node of nodes) {
-    out += `${INDENT.repeat(depth)}- ${composeLine(node)}\n`;
+    // 用节点自己的 bullet 而不是固定的 `-`：`*`/`+` 同样是合法的 CommonMark
+    // 列表标记，把它们改写成 `-` 会让一个只是被导图视图打开过的文件产生
+    // 全量 diff（见 README「写回归一化」一节的承诺）。
+    out += `${INDENT.repeat(depth)}${node.bullet} ${composeLine(node)}\n`;
     for (const line of node.continuation) out += `${line}\n`;
     out += serializeNodes(node.children, depth + 1);
   }
@@ -24,12 +27,20 @@ function serializeNodes(nodes: readonly MindNode[], depth: number): string {
 /** 把思维导图文档写回 Markdown。列表块之外的内容原样保留。 */
 export function serialize(doc: MindDoc): string {
   let out = "";
-  if (doc.frontmatter !== null) out += `---\n${doc.frontmatter}\n---\n`;
+  // 结束围栏后的尾随空白按原样重放：`---   ` 是合法的 frontmatter 结束行，
+  // 抹掉它属于未经许可的写回归一化。
+  if (doc.frontmatter !== null) {
+    out += `---\n${doc.frontmatter}\n---${doc.frontmatterFenceSuffix}\n`;
+  }
   out += doc.preamble;
   // 根节点的 marks 有意不写回：H1 标题行没有承载行内标记语法的位置，标记是
   // 列表项的概念。tree-ops 负责保证 root.marks 永远不会被设置；这里不做兜底
   // 判断，纯粹依赖上游不变量，因此绝不能给 H1 拼接 formatMarks(doc.root.marks)。
-  if (doc.hasHeading) out += `# ${doc.root.text}\n`;
+  // headingPrefix/headingSuffix 保留标题行原来的空白排布（`#   T`、`# T   `），
+  // 同理不做归一化。
+  if (doc.hasHeading) {
+    out += `${doc.headingPrefix}${doc.root.text}${doc.headingSuffix}\n`;
+  }
   out += doc.headingGap;
   out += serializeNodes(doc.root.children, 0);
   out += doc.tail;

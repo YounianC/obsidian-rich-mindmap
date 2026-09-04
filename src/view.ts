@@ -80,16 +80,10 @@ export class MindmapView extends TextFileView {
   private inputPopover: { close(): void } | null = null;
   /** marksPanel/inputPopover 当前绑定的节点 id，见 closeStaleOverlays()。 */
   private overlayOwnerId: string | null = null;
-  /** attachDrag() 返回的取消句柄，供 reloadFromDisk() 中止一次跨文档失效的拖拽。 */
+  /** attachDrag() 返回的取消句柄，供 setViewData() 中止一次跨文档失效的拖拽。 */
   private dragControl: { cancel(): void } | null = null;
   /** parse() 抛异常时的错误信息；非 null 时 render() 走错误态分支，doc 为 null。 */
   private parseError: string | null = null;
-  /** 本视图最近一次通过 getViewData() 写出的文件内容，用于在 vault "modify"
-   *  回调里区分「这是我们自己的保存触发的回声」还是「文件在外部被真的改动了」。 */
-  private lastWritten: string | null = null;
-  /** reloadFromDisk() 的单调递增世代号：两次外部修改可能各触发一次调用，
-   *  两次 vault.read() 谁先 resolve 不保证等于事件谁先触发，见该方法内的用法。 */
-  private reloadSeq = 0;
 
   constructor(leaf: WorkspaceLeaf) {
     super(leaf);
@@ -120,27 +114,59 @@ export class MindmapView extends TextFileView {
     });
     this.resizeObserver.observe(this.root);
 
-    // AI 协同的关键路径：任意外部程序（或用户在源码模式里）直接改这个文件后，
-    // 画布要自动刷新。见 reloadFromDisk() 里对「自己的保存触发的回声」与
-    // 「真正的外部修改」的区分。
-    this.registerEvent(
-      this.app.vault.on("modify", (file) => {
-        if (!(file instanceof TFile) || file.path !== this.file?.path) return;
-        void this.reloadFromDisk(file);
-      }),
-    );
+    // 注意：这里**不**注册自己的 vault.on("modify")。TextFileView.onload() 已经
+    // 注册了一个（`onModify(f) { this.saving || f === this.file && this.loadFileInternal(f, false) }`，
+    // 见反编译的 obsidian.asar），它会读盘、用自己的 lastSavedData 过滤掉本视图
+    // 保存产生的回声，然后调用 setViewData(content, false)。再注册一个只会和它
+    // 竞争：基类那个先注册、先读盘、先 resolve，本插件的收尾逻辑就永远跑在
+    // 「文档已经被基类换掉之后」，等于没做。AI 协同要的自动刷新完全由基类这条
+    // 路径提供，我们只需要把收尾逻辑放进 setViewData 本身，见那里的注释。
   }
 
-  getDoc(): MindDoc | null {
-    return this.doc;
-  }
+  /**
+   * Obsidian 读取文件内容后调用，是本视图唯一的「文档被整体替换」入口。
+   *
+   * `clear` 参数的含义（来自反编译的 obsidian.asar）：
+   * - `true`：换文件。`FileView.onLoadFile` → `loadFileInternal(file, true)`，
+   *   每次加载新文件必定为 true。
+   * - `false`：同一个文件被外部改动后的就地刷新。`TextFileView.onModify` →
+   *   `loadFileInternal(file, false)`。
+   *
+   * 为什么 per-file 重置写在这里而不是 `clear()`：基类的 `clear()` 只可能被
+   * `save(true)` 调用，而 `save(true)` 开头就有
+   * `if (this.lastSavedData === getViewData()) return;` 的早退。文件切换时
+   * `onUnloadFile` 已经 flush 过一次保存，`lastSavedData` 正好等于此刻的
+   * `getViewData()`，于是这个早退是常态——`clear()` 在常见路径上根本不会执行。
+   * 只有 `setViewData` 的 `clear` 参数是每次换文件都必定为 true 的信号。
+   */
+  override setViewData(data: string, clear: boolean): void {
+    // 1) 进行中的就地编辑必须在 this.doc 被替换之前收尾，否则用户刚敲进
+    //    contenteditable 里、还没提交的文字会随旧文档一起消失。blur() 同步走
+    //    startInlineEdit 的 onBlur -> finish(true) -> commitText，用一条已知、
+    //    确定性的路径结束编辑态，而不是指望「聚焦元素被移出文档时浏览器是否补发
+    //    blur」这种因浏览器而异的行为。两个状态都要在 blur 之前抓快照：blur 会
+    //    把 editingId 置空，并通过 applyDoc 重新武装一次防抖保存。
+    const hadUnsavedEdit = this.editingId !== null;
+    const hadPendingSave = this.saveTimer !== null;
+    if (hadUnsavedEdit) {
+      this.root.querySelector<HTMLElement>(".mm-text.mm-editing")?.blur();
+    }
 
-  /** Obsidian 读取文件内容后调用；reloadFromDisk() 里外部变更同步也复用这条路径。 */
-  override setViewData(data: string, _clear: boolean): void {
-    // 防御性清理：正常情况下 onUnloadFile 已经在文件切换前把上一份文档的待保存
-    // 计时器 flush 掉了；这里再兜底一次，避免任何遗漏路径下的计时器在新文档加载
-    // 后触发，把新文档的内容错误地当成旧文档保存。
-    this.clearSaveTimer();
+    // 2) 旧文档的瞬时状态收尾。换文件时做完整的 per-file 重置；外部改动同一个
+    //    文件时保留相机与选中（README/设计文档承诺「视口与选中保持不动」），
+    //    只清掉那些引用着旧文档节点 id 的东西。
+    if (clear) {
+      this.resetPerFileState();
+    } else {
+      // 防抖计时器里排着的是「外部修改之前」的内存文档，让它跑完会把刚被外部
+      // 写入的内容覆盖掉。以磁盘为准，直接丢弃。
+      this.clearSaveTimer();
+      this.resetDocBoundState();
+      if (hadUnsavedEdit || hadPendingSave) {
+        new Notice("文件已在外部修改，以磁盘内容为准。");
+      }
+    }
+
     const fileName = this.file?.name ?? "未命名.md";
     try {
       const parsed = parse(data, fileName);
@@ -154,182 +180,102 @@ export class MindmapView extends TextFileView {
       // this.data 不变——文件绝不会被这次失败的解析结果覆盖。
       this.doc = null;
       this.parseError = String(error);
+      // 错误态没有任何布局可言。留着上一份 lastLayout 会让排队中的
+      // fitToView() 按一张已经不在屏幕上的图去算相机，所以一并清掉。
+      this.lastLayout = null;
+      this.needsFit = false;
     }
     // 强制走 render() 里「layers === null」的重建分支：不仅重建图层/控件/
     // 工具栏，还会 clear(this.root) 一次，顺带清掉任何不属于当前渲染路径、
-    // 直接挂在 this.root 下的浮层残留（例如 reloadFromDisk() 场景下一次被
-    // 外部变更打断的拖拽留下的 ghost/drop-indicator 元素）。普通首次加载时
-    // this.layers 本来就是 null，这里是无操作。
+    // 直接挂在 this.root 下的浮层残留（例如一次被外部变更打断的拖拽留下的
+    // ghost/drop-indicator 元素）。普通首次加载时 this.layers 本来就是 null，
+    // 这里是无操作。
     this.layers = null;
     this.render();
     if (this.parseError !== null) return;
-    // 视口此时可能还没有完成布局（尺寸为 0），fitToView() 在那种情况下是无操作。
-    // needsFit 置位后由 resizeObserver 在视口拿到非零尺寸时补一次。
-    this.needsFit = true;
-    this.fitToView();
+    if (clear) {
+      // 视口此时可能还没有完成布局（尺寸为 0），fitToView() 在那种情况下是无操作。
+      // needsFit 置位后由 resizeObserver 在视口拿到非零尺寸时补一次。
+      this.needsFit = true;
+      this.fitToView();
+    } else {
+      // 外部改文件不应该在任何时间点让视口跳动：相机没有被上面的重置动过，
+      // render() 里已经 applyCamera() 过一次，这里只需要显式把 needsFit 关掉——
+      // 否则若此刻这个 leaf 是尺寸为 0 的后台标签页，之后任意一次尺寸变化都会
+      // 让 resizeObserver 补一次 fitToView()，把保留下来的相机冲掉。
+      this.needsFit = false;
+    }
   }
 
   /** Obsidian 保存时调用，必须返回当前完整文件内容。 */
   override getViewData(): string {
-    if (this.doc === null) {
-      // 解析错误态：没有可序列化的文档，原样交回未被触碰的原始内容。同时把它
-      // 记为“我们自己写出的内容”，避免它被外部程序（例如 Obsidian 在错误态下
-      // 仍然做的一次全局保存）原样写回磁盘后，被 reloadFromDisk() 的自写检测
-      // 误判成一次外部修改而弹出多余的“以磁盘内容为准”提示。
-      this.lastWritten = this.data;
-      return this.data;
-    }
-    const output = serialize(this.withCollapsedInFrontmatter(this.doc));
-    this.lastWritten = output;
-    return output;
+    // 解析错误态：没有可序列化的文档，原样交回未被触碰的原始内容。基类的
+    // save() 会看到 getViewData() === lastSavedData 而直接早退，文件不会被写。
+    if (this.doc === null) return this.data;
+    return serialize(this.withCollapsedInFrontmatter(this.doc));
   }
 
   /**
-   * 外部（例如 AI 直接改文件，或用户在源码模式手改）修改后重新解析，保留相机
-   * 与选中——这是整个插件「不内置 AI、靠外部程序改 .md 文件」这条设计的关键
-   * 落地点，见 vault.on("modify") 的注册处。
+   * 「一次文档整体替换」必须收尾的瞬时状态：它们全都以旧文档的节点 id 为键，
+   * 重新解析后同名 id 很可能指向完全不同的节点（parser.ts 按前序遍历顺序重新
+   * 分配 n0/n1/n2…，插入或删除一个节点就会让后面的 id 整体错位）。
    *
-   * 自写检测：本视图每次保存都会先经过 getViewData()，那里把即将写出的内容
-   * 记进 lastWritten，随后 Obsidian 才会把同一份内容通过 vault.modify 落盘，
-   * 触发这里监听的 "modify" 事件——这个「回声」事件读回的内容与 lastWritten
-   * 逐字节相同，据此可靠地和「文件真的被别的程序改了」区分开，对首次加载
-   * （lastWritten 仍是 null，不会误判成自写）、以及外部编辑恰好把内容改回
-   * 和 lastWritten 相同字节序列（此时确实不需要重绘，因为内存里的文档本就
-   * 与磁盘一致）这两种边界情况都成立。
+   * 不能指望紧随其后的 clear(this.root) 顺带处理：标记面板、链接浮层、工具栏
+   * 的样式菜单各自在 **document** 上挂着 pointerdown/keydown 捕获监听
+   * （见 marks-panel.ts、input-popover.ts、toolbar.ts），销毁 DOM 节点不会解绑
+   * 它们；拖拽状态更是完全活在 drag.ts 的闭包里，DOM 被清掉之后 state 依然是
+   * active，用户松手时照样触发 onDrop，用旧 id 去移动新文档里的某个节点，
+   * 并在 400ms 内静默写进磁盘。
    */
-  private async reloadFromDisk(file: TFile): Promise<void> {
-    // 世代号：见下方 await 之后的比较。必须在这里（任何 await 之前）取号，
-    // 保证两次几乎同时触发的调用各自拿到不同的、按调用先后单调递增的号码。
-    const seq = ++this.reloadSeq;
-    // vault.read() 是一次真正的磁盘 I/O，之后才能判断这是不是自己的回声；
-    // 但等待期间事件循环仍会正常跑定时器——如果本地正好有一个即将在这几毫秒
-    // 内触发的防抖保存，它会在我们判断出「这是外部修改」之前抢先把内存里旧的
-    // （尚未包含这次外部变更的）内容写回磁盘，覆盖掉外部刚写入的内容。因此必须
-    // 在发起读取之前就先把计时器挪开，而不是等读完、判断完之后再挪；如果读完
-    // 发现其实并没有真外部变化（见下面 lastWritten 比较），再把计时器原样接
-    // 回去，不丢用户尚未落盘的本地编辑。
-    const wasPending = this.saveTimer !== null;
-    if (wasPending) this.clearSaveTimer();
-
-    const content = await this.app.vault.read(file);
-    if (seq !== this.reloadSeq) {
-      // 等待读盘期间又有更新的一次 "modify" 事件进来、开始了自己的
-      // reloadFromDisk（更大的 seq）。两次 vault.read() 谁先 resolve 不保证
-      // 等于两次外部写入谁先发生——如果这次（更旧的调用）反而后 resolve，直接
-      // 套用它读到的内容会让画布从更新的外部内容"倒退"回旧内容，且这份倒退
-      // 不会被任何东西发现：lastWritten 只在 getViewData() 里更新，不会因为
-      // 一次读盘而改变，一直到下一次保存才会暴露出画布内容和磁盘不一致，
-      // 那时本地保存已经把更新的外部内容覆盖掉了。让更新的调用独占生效，
-      // 本次直接放弃——不动 doc/camera/selectedId，任何东西都不写回。
-      if (wasPending) this.scheduleSave();
-      return;
-    }
-    if (content === this.lastWritten) {
-      if (wasPending) this.scheduleSave();
-      return;
-    }
-
-    // 到这里才能确认是一次真正的外部修改。下面这几类瞬时 UI 状态都引用着
-    // 即将被整体替换掉的旧文档，必须显式收尾，不能指望马上要发生的
-    // clear(this.root) 顺带处理——标记面板/输入浮层/工具栏样式菜单各自还在
-    // document 上挂着 pointerdown/keydown 捕获监听（见 marks-panel.ts、
-    // input-popover.ts、toolbar.ts），只销毁 DOM 节点不会解绑这些监听，会在
-    // 每次外部变更刷新后都泄漏一组。
-    const hadUnsavedEdit = this.editingId !== null;
-    if (hadUnsavedEdit) {
-      // 与 onUnloadFile 同一手法：blur() 会同步走 startInlineEdit 里的
-      // onBlur -> finish(true) -> commitText，把编辑框里当前的文字当一次正常
-      // 提交收尾。提交去哪儿并不重要——旧文档整体都要被下面的磁盘内容替换掉，
-      // 这一步真正要的是用一条已知、确定性的路径结束编辑态，而不是依赖
-      // “聚焦元素被移出文档时浏览器是否补发 blur”这种因浏览器而异的行为。
-      this.root.querySelector<HTMLElement>(".mm-text.mm-editing")?.blur();
-    }
-    // 标记面板/输入浮层各自捕获着打开它们那一刻的节点 id（对标记面板而言还有
-    // marks 快照）；重新解析后同名 id 是否还指向同一节点、marks 是否还是面板
-    // 里显示的那份，都不再有保证。工具栏的样式菜单同理，且它是三者里唯一挂了
-    // document 监听、又没有独立 close() 方法的一个，必须在丢弃 this.toolbar
-    // 引用之前调用 hide() 把监听摘掉。
+  private resetDocBoundState(): void {
+    // 未提交的就地编辑：底层 DOM 节点马上要被销毁，若不重置这几个字段，新文档
+    // 会继承一个再也不存在的 editingId，isEditing() 永远为真，键盘/选择/拖拽和
+    // applyDoc 的重绘会全部失效，直到再切一次文件为止。
+    this.editingId = null;
+    this.pendingEditId = null;
+    this.freshNodeId = null;
+    // 工具栏是三者里唯一挂了 document 监听、又没有独立 close() 的一个，
+    // 必须在丢弃引用之前 hide() 把样式菜单的监听摘掉。
     this.toolbar?.hide();
     this.marksPanel?.close();
     this.marksPanel = null;
     this.inputPopover?.close();
     this.inputPopover = null;
     this.overlayOwnerId = null;
-    // 进行中的拖拽同理必须一并中止：它内部记着的 sourceId/target.targetId 都是
-    // 旧文档里的 id，reparse 后同名 id 很可能指向完全不同的节点（parser.ts 按
-    // 前序遍历顺序重新分配 n0/n1/n2…，插入/删除一个节点就会让后面的 id 整体错位）。
-    // 不取消的话，用户此刻仍按着的手指松开时会照常触发 onDrop，把新文档里恰好
-    // 顶替了那个 id 的节点移动到一个也早已不是原意的目标位置——这条路径完全
-    // 静默，会在下一次 400ms 防抖内写进磁盘。
     this.dragControl?.cancel();
-
-    if (wasPending || hadUnsavedEdit) {
-      new Notice("文件已在外部修改，以磁盘内容为准。");
-    }
-
-    const camera = this.camera;
-    const selectedId = this.selectedId;
-
-    this.data = content;
-    this.setViewData(content, false);
-
-    // setViewData() 内部会尝试 fitToView()：视口通常已有非零尺寸，fitToView
-    // 会立即成功并把 needsFit 置回 false；但如果这个 leaf 当前是隐藏的后台
-    // 标签页（尺寸为 0），fitToView 会是无操作、needsFit 会保持 true——那样
-    // 的话，之后任何一次真实的窗口/面板尺寸变化都会触发 resizeObserver 里
-    // 排队的那次补拍 fitToView()，把下面刻意恢复的相机又冲掉。外部改文件不
-    // 应该在未来任何时间点让视口跳动，所以这里连同 needsFit 一并显式收尾。
-    this.camera = camera;
-    this.selectedId = selectedId;
-    this.needsFit = false;
-    this.applyCamera();
-    this.refreshSelectionClasses();
-    this.syncToolbar();
   }
 
-  override clear(): void {
+  /**
+   * 换文件（或关闭视图）时的完整重置：在 resetDocBoundState() 之上，再把所有
+   * 「属于当前文件」的展示状态归零。`this.root` 本身不会被重建
+   * （见 attachCameraEvents 的 eventsAttached 守卫），但它的子树会被清空，
+   * 因此指向子树的引用（layers/controls/toolbar）必须一并置空。
+   */
+  private resetPerFileState(): void {
     this.clearSaveTimer();
+    this.resetDocBoundState();
     this.doc = null;
+    this.parseError = null;
     this.layers = null;
     this.lastLayout = null;
     this.selectedId = null;
-    // 未提交的就地编辑属于旧文档的瞬时状态：底层 DOM 节点即将被下面的 clear(this.root)
-    // 销毁，若不重置这两个字段，新文档会继承一个再也不存在的 editingId，
-    // isEditing() 永远为真，导致新文档的选择/键盘交互全部失效。
-    this.editingId = null;
-    this.pendingEditId = null;
-    this.freshNodeId = null;
-    // `this.root` 本身不会被重建（见 attachCameraEvents 的 eventsAttached 守卫），
-    // 但控件与相机状态属于「当前文档」的展示状态，文件切换后必须重置，否则新文档
-    // 会继承上一份文档的缩放/平移，且 controls 会指向已被 clear(this.root) 移除的
-    // 旧 DOM 节点。
     this.controls = null;
+    this.toolbar = null;
     this.panOrigin = null;
     this.camera = IDENTITY;
-    // 同上：工具栏与浮层同样是「当前文档」的展示状态，且标记面板/输入浮层各自
-    // 在 document 上挂了 pointerdown/keydown 捕获监听（见 marks-panel.ts、
-    // input-popover.ts）。必须显式 close() 让它们摘掉这些监听，仅仅依赖下面的
-    // clear(this.root) 销毁 DOM 节点是不够的——监听器挂在 document 而非
-    // this.root 上，不会随 DOM 移除自动解绑，否则每切换一次文件就泄漏一组。
-    this.toolbar = null;
-    this.marksPanel?.close();
-    this.marksPanel = null;
-    this.inputPopover?.close();
-    this.inputPopover = null;
-    this.overlayOwnerId = null;
-    // 同一 leaf 切到另一个文件时，拖拽状态里记的 id 属于即将离开的旧文档，
-    // 理由与 reloadFromDisk() 里取消拖拽完全一致：一旦文档整体换掉，任何还在
-    // 途中的手势捕获的 id 都不再有意义，必须一并中止，不能留着等 pointerup
-    // 时用旧 id 操作新文档。
-    this.dragControl?.cancel();
+    this.needsFit = false;
     clear(this.root);
-    // 这份 lastWritten 记的是"上一个文件"最近一次写出的字节；Obsidian 会在同一个
-    // leaf 上复用这个视图实例加载下一个文件，如果不重置，新文件在自己第一次保存
-    // 之前，一次真外部修改只要字节恰好等于旧文件最后写出的内容（例如两份用同一
-    // 模板新建的笔记），就会被 reloadFromDisk() 的自写检测误判成回声而悄悄丢弃，
-    // 之后本地保存还可能把它覆盖掉。清空后回到"首次加载、lastWritten 为 null"
-    // 那条已验证安全的路径。
-    this.lastWritten = null;
+  }
+
+  /**
+   * 基类只在 `save(true)` 里调用 clear()，而 `save(true)` 在
+   * `lastSavedData === getViewData()` 时就早退了——文件切换前 onUnloadFile 已经
+   * flush 过保存，所以这条路径在常见场景下压根不会执行。真正每次换文件都会跑的
+   * 是 `setViewData(data, true)`，per-file 重置以那里为准，这里只是把同一份逻辑
+   * 接到基类约定的钩子上，重复调用是幂等的。
+   */
+  override clear(): void {
+    this.resetPerFileState();
   }
 
   /**
@@ -390,14 +336,13 @@ export class MindmapView extends TextFileView {
       this.clearSaveTimer();
       await this.save();
     }
+    // 关闭 leaf 与切换文件一样，必须显式收尾浮层与拖拽：标记面板/链接浮层的
+    // pointerdown 捕获监听挂在 document 上，视图 DOM 被销毁不会解绑，不清理就会
+    // 在整个 Obsidian 会话余下的时间里一直挂着。
+    this.resetPerFileState();
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     await super.onClose();
-  }
-
-  /** 当前布局结果，供 Task 10 起的交互层使用。 */
-  getLayout(): LayoutResult | null {
-    return this.lastLayout;
   }
 
   private render(): void {

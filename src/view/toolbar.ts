@@ -36,7 +36,6 @@ export function createToolbar(
 ): {
   showFor(nodeEl: HTMLElement, canCollapse: boolean, isRoot: boolean): void;
   hide(): void;
-  contains(node: Node): boolean;
 } {
   // mm-no-pan：画布上「界面元素」的通用标记（见 view.ts 的 attachCameraEvents
   // 与 interaction.ts 的 pointerdown 守卫），否则在工具栏上按下并拖动会被画布
@@ -162,9 +161,6 @@ export function createToolbar(
     hide(): void {
       closeStyleMenu();
       bar.hide();
-    },
-    contains(node: Node): boolean {
-      return bar.contains(node) || (styleMenu?.contains(node) ?? false);
     },
   };
 }

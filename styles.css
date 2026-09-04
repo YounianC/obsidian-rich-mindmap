@@ -296,10 +296,6 @@
   cursor: grabbing;
 }
 
-.mindmap-view.mm-dragging .mm-node {
-  pointer-events: auto;
-}
-
 .mm-drag-ghost {
   position: absolute;
   z-index: 20;

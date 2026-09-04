@@ -116,12 +116,14 @@ export default class MindmapPlugin extends Plugin {
       // model/parser.ts 对同一 frontmatter 正则的处理方式保持一致，也是
       // README 里写明的三种写回归一化之一。
       const content = raw.replace(/\r\n/g, "\n");
-      const match = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(content);
+      // 第 2 组是结束围栏 `---` 后的尾随空白，原样重放，和 model/parser.ts
+      // 一致——这条命令只负责改 frontmatter 里的一个键，不该顺带改别的字节。
+      const match = /^---\r?\n([\s\S]*?)\r?\n---([ \t]*)(?:\r?\n|$)/.exec(content);
       if (match === null) {
         return `---\n${setMindmapFlag(null, true)}\n---\n\n${content}`;
       }
       const updated = setMindmapFlag(match[1], true);
-      return `---\n${updated}\n---\n${content.slice(match[0].length)}`;
+      return `---\n${updated}\n---${match[2]}\n${content.slice(match[0].length)}`;
     });
     new Notice("已标记为思维导图。");
   }

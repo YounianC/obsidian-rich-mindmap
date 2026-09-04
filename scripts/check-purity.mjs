@@ -1,7 +1,8 @@
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
-// Node 20 没有 fs.globSync，手工枚举纯函数层文件。
+// Node 20 没有 fs.globSync，手工枚举纯函数层文件；目录用 recursive 递归，
+// 否则将来新建的 src/model/sub/x.ts 会悄悄绕过这道边界校验。
 const PURE_DIRS = ["src/model"];
 const PURE_FILES = ["src/view/layout.ts", "src/view/camera.ts"];
 
@@ -14,7 +15,9 @@ const FORBIDDEN = [
 
 const files = [
   ...PURE_DIRS.filter(existsSync).flatMap((d) =>
-    readdirSync(d).filter((f) => f.endsWith(".ts")).map((f) => join(d, f)),
+    readdirSync(d, { recursive: true })
+      .filter((f) => f.endsWith(".ts"))
+      .map((f) => join(d, f)),
   ),
   ...PURE_FILES.filter(existsSync),
 ];

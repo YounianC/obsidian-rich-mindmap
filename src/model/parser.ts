@@ -1,10 +1,13 @@
 import { parseMarks } from "./marks";
-import type { MindDoc, MindNode } from "./types";
+import type { Bullet, MindDoc, MindNode } from "./types";
 
-const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
-const HEADING_RE = /^#[ \t]+(.*)$/;
+/** 第 2 组捕获结束围栏 `---` 之后的尾随空白，写回时原样重放。 */
+const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---([ \t]*)(?:\r?\n|$)/;
+/** 第 1 组是 `#` 加其后的原始空白，第 2 组是标题行剩余部分（含尾随空白）。 */
+const HEADING_RE = /^(#[ \t]+)(.*)$/;
+const TRAILING_BLANK_RE = /[ \t]*$/;
 const ANY_HEADING_RE = /^#{1,6}[ \t]/;
-const LIST_ITEM_RE = /^([ \t]*)[-*+][ \t]+(.*)$/;
+const LIST_ITEM_RE = /^([ \t]*)([-*+])[ \t]+(.*)$/;
 const ORDERED_ITEM_RE = /^[ \t]*\d+\.[ \t]/;
 const FENCE_RE = /^[ \t]*(?:```|~~~)/;
 
@@ -28,6 +31,7 @@ function indentWidth(indent: string): number {
 
 interface ListItemLine {
   depthWidth: number;
+  bullet: Bullet;
   text: string;
   continuation: string[];
 }
@@ -60,7 +64,10 @@ function scanListBlock(
     if (item) {
       items.push({
         depthWidth: indentWidth(item[1]),
-        text: item[2],
+        // 正则第 2 组只可能匹配到 `-`/`*`/`+` 三者之一，这里的断言是把这一点
+        // 从正则转达给类型系统，不是运行时判断。
+        bullet: item[2] as Bullet,
+        text: item[3],
         continuation: [],
       });
       i++;
@@ -110,6 +117,7 @@ function buildTree(items: ListItemLine[], root: MindNode): void {
       children: [],
       collapsed: false,
       continuation: item.continuation,
+      bullet: item.bullet,
     };
 
     stack[depth - 1].children.push(node);
@@ -128,10 +136,12 @@ export function parse(md: string, fileName: string): MindDoc {
   // 输出统一的行尾，不会产生混合换行符的文件。
   let rest = md.replace(/\r\n/g, "\n");
   let frontmatter: string | null = null;
+  let frontmatterFenceSuffix = "";
 
   const fm = FRONTMATTER_RE.exec(rest);
   if (fm) {
     frontmatter = fm[1];
+    frontmatterFenceSuffix = fm[2];
     rest = rest.slice(fm[0].length);
   }
 
@@ -147,9 +157,19 @@ export function parse(md: string, fileName: string): MindDoc {
   }
 
   const hasHeading = headingIndex >= 0;
-  const rootText = hasHeading
-    ? (HEADING_RE.exec(lines[headingIndex]) as RegExpExecArray)[1].trim()
-    : fileName.replace(/\.md$/, "");
+  // 标题行的 `#` 与文字之间、以及文字之后的空白都逐字保留：否则 `#   T` /
+  // `# T   ` 这类完全合法的写法会仅仅因为被导图视图打开过一次就被改写。
+  const heading = hasHeading
+    ? (HEADING_RE.exec(lines[headingIndex]) as RegExpExecArray)
+    : null;
+  const headingBody = heading === null ? "" : heading[2];
+  const headingSuffix =
+    heading === null ? "" : (TRAILING_BLANK_RE.exec(headingBody) as RegExpExecArray)[0];
+  const rootText =
+    heading === null
+      ? fileName.replace(/\.md$/, "")
+      : headingBody.slice(0, headingBody.length - headingSuffix.length);
+  const headingPrefix = heading === null ? "# " : heading[1];
   const preamble = sliceText(lines, 0, hasHeading ? headingIndex : 0);
 
   // 定位列表块起点。
@@ -170,12 +190,18 @@ export function parse(md: string, fileName: string): MindDoc {
     children: [],
     collapsed: false,
     continuation: [],
+    // 根节点自身没有列表行；这里存的是「文件里第一个列表项用的标记字符」，
+    // 供 tree-ops 给根的新直接子节点挑一个和现有兄弟一致的标记（见 makeNode）。
+    bullet: "-",
   };
 
   if (blockStart < 0) {
     return {
       frontmatter,
+      frontmatterFenceSuffix,
       hasHeading,
+      headingPrefix,
+      headingSuffix,
       root,
       preamble,
       headingGap: "",
@@ -184,11 +210,16 @@ export function parse(md: string, fileName: string): MindDoc {
   }
 
   const { items, end } = scanListBlock(lines, blockStart);
+  const firstBullet = items[0]?.bullet;
+  if (firstBullet !== undefined) root.bullet = firstBullet;
   buildTree(items, root);
 
   return {
     frontmatter,
+    frontmatterFenceSuffix,
     hasHeading,
+    headingPrefix,
+    headingSuffix,
     root,
     preamble,
     headingGap: sliceText(lines, searchFrom, blockStart),

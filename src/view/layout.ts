@@ -44,6 +44,16 @@ export const DEFAULT_LAYOUT_OPTIONS: LayoutOptions = {
 
 const ZERO: Size = { width: 0, height: 0 };
 
+/**
+ * 分支序号的唯一定义：根（depth 0）的每个直接子节点各自开一个分支，更深的层级
+ * 一律继承祖先的分支号。连线配色（本文件的 place/collectEdges）与节点配色
+ * （renderer.ts 的 collectPlacements）必须用同一条规则，否则同一棵子树的边色和
+ * 节点色会错位——三处各写一遍是这类不一致的常见来源，因此收敛到这里。
+ */
+export function childBranch(depth: number, index: number, branch: number): number {
+  return depth === 0 ? index : branch;
+}
+
 function hasVisibleChildren(node: MindNode): boolean {
   return !node.collapsed && node.children.length > 0;
 }
@@ -127,8 +137,7 @@ export function layout(
     let childTop = top + (span - childrenSpan) / 2;
 
     for (const [i, child] of node.children.entries()) {
-      const childBranch = depth === 0 ? i : branch;
-      place(child, childX, childTop, depth + 1, childBranch);
+      place(child, childX, childTop, depth + 1, childBranch(depth, i, branch));
       childTop += (spans.get(child.id) ?? 0) + opts.vGap;
     }
   };
@@ -144,15 +153,15 @@ export function layout(
     node.children.forEach((child, i) => {
       const to = rects.get(child.id);
       if (to === undefined) return;
-      const childBranch = depth === 0 ? i : branch;
+      const nextBranch = childBranch(depth, i, branch);
       edges.push({
         fromId: node.id,
         toId: child.id,
         path: bezier(from, to),
         depth: depth + 1,
-        branch: childBranch,
+        branch: nextBranch,
       });
-      collectEdges(child, depth + 1, childBranch);
+      collectEdges(child, depth + 1, nextBranch);
     });
   };
 

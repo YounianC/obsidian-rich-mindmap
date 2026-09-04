@@ -27,6 +27,15 @@ const CORPUS: string[] = [
   "# t\n\n- a\n\n\n\n结尾说明\n",
   "# t\n\n- - 这个节点文字以短横线开头\n",
   "# t\n\n- # 这个节点文字以井号开头\n",
+  // 以下六条是「写回不得做未获许可的归一化」的字节级回归：`*`/`+` 列表标记、
+  // 标题行的空白排布、frontmatter 结束围栏的尾随空白，历史上都曾被静默改写。
+  // 它们属于精选语料，不能靠 fuzz 生成器覆盖——safeText 刻意不含这些字符。
+  "# t\n\n* a\n  * b\n",
+  "# t\n\n+ a\n  + b\n",
+  "# t\n\n* a\n  - b\n  + c\n",
+  "#   t\n\n- a\n",
+  "# t   \n\n- a\n",
+  "---\nmindmap: true\n---  \n\n# t\n\n- a\n",
 ];
 
 describe("serialize(parse(md)) === md", () => {
@@ -44,6 +53,7 @@ function stripIds(node: MindNode): unknown {
     marks: node.marks,
     collapsed: node.collapsed,
     continuation: node.continuation,
+    bullet: node.bullet,
     children: node.children.map(stripIds),
   };
 }
@@ -68,6 +78,9 @@ const marksArb = fc.record(
 /** 续行：留空，或恰好一行 2 空格缩进的续行文本（与写回缩进单位一致）。 */
 const continuationArb = fc.constantFrom([] as string[], ["  续行内容"]);
 
+/** 三种合法的无序列表标记，逐节点独立取值——同一文件里混用是合法 Markdown。 */
+const bulletArb = fc.constantFrom(...(["-", "*", "+"] as const));
+
 function nodeArb(depth: number): fc.Arbitrary<MindNode> {
   // depth 递减到 0 即停，因此可以直接递归构造，无需 fc.letrec。
   const childrenArb: fc.Arbitrary<MindNode[]> =
@@ -80,6 +93,7 @@ function nodeArb(depth: number): fc.Arbitrary<MindNode> {
     children: childrenArb,
     collapsed: fc.constant(false),
     continuation: continuationArb,
+    bullet: bulletArb,
   });
 }
 
@@ -96,33 +110,48 @@ function nodeArb(depth: number): fc.Arbitrary<MindNode> {
  * 各字段互相独立自由组合。
  */
 const docArb: fc.Arbitrary<MindDoc> = fc.boolean().chain((hasHeading) =>
-  fc.record({
-    frontmatter: fc.constantFrom(
-      null,
-      "mindmap: true",
-      "title: x\nzzz: 1\nmindmap: true",
-    ),
-    hasHeading: fc.constant(hasHeading),
-    root: fc.record({
-      id: fc.constant("n0"),
-      // 无标题时 root.text 不会被写回文件，reparse 后落回 parse 对文件名的
-      // 兜底取值（属性测试统一用 "我的导图.md" 调用 parse）。
-      text: hasHeading ? safeText : fc.constant("我的导图"),
-      marks: fc.constant({}),
-      children: fc.array(nodeArb(3), { minLength: 1, maxLength: 4 }),
-      collapsed: fc.constant(false),
-      continuation: fc.constant([] as string[]),
-    }),
-    preamble: hasHeading ? fc.constantFrom("", "说明文字\n\n") : fc.constant(""),
-    headingGap: fc.constantFrom("\n", "\n\n"),
-    tail: fc.constantFrom(
-      "",
-      "\n结尾说明\n",
-      "\n\n\n多个空行之后\n",
-      "## 附录\n- b\n",
-      "1. 步骤\n",
-    ),
-  }),
+  fc
+    .record({
+      frontmatter: fc.constantFrom(
+        null,
+        "mindmap: true",
+        "title: x\nzzz: 1\nmindmap: true",
+      ),
+      frontmatterFenceSuffix: fc.constantFrom("", "  ", "\t"),
+      hasHeading: fc.constant(hasHeading),
+      // 无标题时这两个字段不会被写进文件，reparse 只能落回解析器的缺省值。
+      headingPrefix: hasHeading ? fc.constantFrom("# ", "#   ", "#\t") : fc.constant("# "),
+      headingSuffix: hasHeading ? fc.constantFrom("", "   ") : fc.constant(""),
+      root: fc.record({
+        id: fc.constant("n0"),
+        // 无标题时 root.text 不会被写回文件，reparse 后落回 parse 对文件名的
+        // 兜底取值（属性测试统一用 "我的导图.md" 调用 parse）。
+        text: hasHeading ? safeText : fc.constant("我的导图"),
+        marks: fc.constant({}),
+        children: fc.array(nodeArb(3), { minLength: 1, maxLength: 4 }),
+        collapsed: fc.constant(false),
+        continuation: fc.constant([] as string[]),
+        bullet: bulletArb,
+      }),
+      preamble: hasHeading ? fc.constantFrom("", "说明文字\n\n") : fc.constant(""),
+      headingGap: fc.constantFrom("\n", "\n\n"),
+      tail: fc.constantFrom(
+        "",
+        "\n结尾说明\n",
+        "\n\n\n多个空行之后\n",
+        "## 附录\n- b\n",
+        "1. 步骤\n",
+      ),
+    })
+    .map((doc) => ({
+      ...doc,
+      // 两处「文件里没有承载位置、因此 reparse 只能推断」的字段，必须在生成
+      // 阶段就对齐解析器的推断规则，否则会产出不可能存在于任何真实文件的 doc：
+      // - 无 frontmatter 时结束围栏根本不存在，其尾随空白只能是空串；
+      // - 根节点没有自己的列表行，parser 用文件里第一个列表项的标记字符回填。
+      frontmatterFenceSuffix: doc.frontmatter === null ? "" : doc.frontmatterFenceSuffix,
+      root: { ...doc.root, bullet: doc.root.children[0]?.bullet ?? "-" },
+    })),
 );
 
 describe("已知归一化", () => {
@@ -150,7 +179,10 @@ describe("parse(serialize(doc)) 结构等于 doc", () => {
         const back = parse(serialize(doc), "我的导图.md");
         expect(stripIds(back.root)).toEqual(stripIds(doc.root));
         expect(back.frontmatter).toBe(doc.frontmatter);
+        expect(back.frontmatterFenceSuffix).toBe(doc.frontmatterFenceSuffix);
         expect(back.hasHeading).toBe(doc.hasHeading);
+        expect(back.headingPrefix).toBe(doc.headingPrefix);
+        expect(back.headingSuffix).toBe(doc.headingSuffix);
         expect(back.preamble).toBe(doc.preamble);
         expect(back.headingGap).toBe(doc.headingGap);
         expect(back.tail).toBe(doc.tail);

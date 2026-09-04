@@ -1,4 +1,4 @@
-import type { Marks, MindNode } from "./types";
+import type { Bullet, Marks, MindNode } from "./types";
 
 export function findNode(root: MindNode, id: string): MindNode | null {
   if (root.id === id) return root;
@@ -30,8 +30,11 @@ export function freshId(root: MindNode): string {
   return `n${max + 1}`;
 }
 
-function makeNode(id: string, text: string): MindNode {
-  return { id, text, marks: {}, children: [], collapsed: false, continuation: [] };
+/** 新节点跟着「未来的兄弟们」用同一个列表标记字符，避免在一个 `*` 列表里
+ *  插进一行 `- `。根节点的 bullet 由 parser 取自文件里的第一个列表项，
+ *  没有列表项时为 `-`（见 parser.ts）。 */
+function makeNode(id: string, text: string, bullet: Bullet): MindNode {
+  return { id, text, marks: {}, children: [], collapsed: false, continuation: [], bullet };
 }
 
 /** 对树做一次映射式重建；`fn` 返回 null 表示该节点不变。 */
@@ -50,7 +53,9 @@ export function addChild(
   text = "",
 ): { root: MindNode; newId: string } {
   const newId = freshId(root);
-  const child = makeNode(newId, text);
+  // 父节点找不到时（调用方传了无效 id）mapTree 不会插入任何东西，bullet 取值
+  // 无关紧要，回退到父节点缺省的 `-`。
+  const child = makeNode(newId, text, findNode(root, parentId)?.bullet ?? "-");
   const next = mapTree(root, (node) =>
     node.id === parentId
       ? { ...node, collapsed: false, children: [...node.children, child] }
@@ -67,7 +72,8 @@ export function addSibling(
   if (siblingId === root.id) return addChild(root, root.id, text);
 
   const newId = freshId(root);
-  const sibling = makeNode(newId, text);
+  // 兄弟节点直接沿用参照兄弟的标记字符。
+  const sibling = makeNode(newId, text, findNode(root, siblingId)?.bullet ?? "-");
   const next = mapTree(root, (node) => {
     const index = node.children.findIndex((c) => c.id === siblingId);
     if (index < 0) return null;

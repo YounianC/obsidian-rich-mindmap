@@ -1,6 +1,7 @@
 import type { MindNode } from "../model/types";
 import { clear, el, svgEl } from "./dom";
 import {
+  childBranch,
   DEFAULT_LAYOUT_OPTIONS,
   layout,
   type LayoutResult,
@@ -43,9 +44,9 @@ function collectPlacements(root: MindNode): Placement[] {
   const walk = (node: MindNode, depth: number, branch: number): void => {
     if (node.collapsed) return;
     node.children.forEach((child, i) => {
-      const childBranch = depth === 0 ? i : branch;
-      result.push({ node: child, depth: depth + 1, branch: childBranch });
-      walk(child, depth + 1, childBranch);
+      const nextBranch = childBranch(depth, i, branch);
+      result.push({ node: child, depth: depth + 1, branch: nextBranch });
+      walk(child, depth + 1, nextBranch);
     });
   };
 

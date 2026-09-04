@@ -13,9 +13,18 @@ describe("serialize", () => {
     expect(serialize(doc)).toBe("# t\n\n- a\n  - b\n");
   });
 
-  it("* 与 + 列表标记归一化为 -", () => {
+  it("* 与 + 列表标记原样保留，不归一化为 -", () => {
     const doc = parse("# t\n\n* a\n+ b\n", "x.md");
-    expect(serialize(doc)).toBe("# t\n\n- a\n- b\n");
+    expect(serialize(doc)).toBe("# t\n\n* a\n+ b\n");
+  });
+
+  it("标题行的空白排布原样保留", () => {
+    expect(serialize(parse("#   t   \n\n- a\n", "x.md"))).toBe("#   t   \n\n- a\n");
+  });
+
+  it("frontmatter 结束围栏的尾随空白原样保留", () => {
+    const md = "---\nmindmap: true\n---  \n\n# t\n\n- a\n";
+    expect(serialize(parse(md, "x.md"))).toBe(md);
   });
 
   it("标记按固定顺序写回", () => {
