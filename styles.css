@@ -352,6 +352,48 @@
   border-radius: 6px;
 }
 
+/* 插入位置指示器（before / after）。高度与外观由 CSS 按 data-zone 决定，
+   drag.ts 只写动态几何（left / width / top），并在离开 child 区域时清掉内联
+   height —— 见那里的 removeProperty("height")。
+   两处刻意的设计：
+   - **不贴着节点边缘画。** 节点的下划线本身就是入边 SVG 路径的一部分、画在
+     节点底边（见第 12 条约束），指示线若也画在那条线上，用户读到的是「下划线
+     变粗了」而不是「要插到这里」。所以往节点外侧推 5px，落进两个节点之间的
+     空隙里（layout 的 vGap 是 14px，3px 的线正好居中）。
+   - **带 1px 背景色描边。** 分支线是七种颜色轮换的，指示线要在任何一种颜色
+     之上都能被读成独立的对象。用 outline 而不是 box-shadow：它不参与布局，
+     也不是「阴影」（第 10 条约定阴影用 --shadow-s）。 */
+.mm-drop-indicator[data-zone="before"],
+.mm-drop-indicator[data-zone="after"] {
+  height: 3px;
+  border-radius: 999px;
+  outline: 1px solid var(--background-primary);
+}
+
+.mm-drop-indicator[data-zone="after"] {
+  margin-top: 5px;
+}
+
+.mm-drop-indicator[data-zone="before"] {
+  margin-top: -8px;
+}
+
+/* 左端的圆头：插入点的标准视觉提示。与跟随光标的 .mm-drag-ghost 同色，但位置
+   不同（ghost 在指针处，这个在线的起点），所以两者不会混淆。 */
+.mm-drop-indicator[data-zone="before"]::before,
+.mm-drop-indicator[data-zone="after"]::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: -3px;
+  width: 9px;
+  height: 9px;
+  transform: translateY(-50%);
+  background: var(--interactive-accent);
+  border-radius: 50%;
+  outline: 1px solid var(--background-primary);
+}
+
 /* 拖拽浮层的隐藏态（drag.ts 用类名切换，不直接写 style.display） */
 .mm-drag-ghost.mm-hidden,
 .mm-drop-indicator.mm-hidden {

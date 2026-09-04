@@ -189,12 +189,17 @@ export function attachDrag(host: DragHost): { cancel(): void } {
       indicator.dataset.zone = zone;
       indicator.style.left = `${hitRect.left - rootRect.left}px`;
       indicator.style.width = `${hitRect.width}px`;
-      indicator.style.top = `${
-        (zone === "before" ? hitRect.top : hitRect.bottom) - rootRect.top
-      }px`;
-      indicator.style.height = zone === "child" ? `${hitRect.height}px` : "2px";
       if (zone === "child") {
         indicator.style.top = `${hitRect.top - rootRect.top}px`;
+        indicator.style.height = `${hitRect.height}px`;
+      } else {
+        indicator.style.top = `${
+          (zone === "before" ? hitRect.top : hitRect.bottom) - rootRect.top
+        }px`;
+        // before/after 的高度与外观交给 CSS 按 data-zone 决定（含把线推进节点
+        // 之间空隙的那点偏移，见 styles.css）。这里必须清掉内联 height：上一帧
+        // 可能命中的是 child 区域并写过节点高度，内联值会盖住 CSS 规则。
+        indicator.style.removeProperty("height");
       }
     }
   });
