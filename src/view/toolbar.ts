@@ -46,9 +46,21 @@ export function createToolbar(
 
   let styleMenu: HTMLElement | null = null;
 
+  // 与 marks-panel.ts/input-popover.ts 同款：Esc 只关掉菜单本身，不能让它
+  // 冒泡到画布的 keydown 监听器上把当前选中节点也清空——用户此刻的意图只是
+  // 收起下拉菜单。挂在 document 捕获阶段，与另外两个浮层保持同一套机制。
+  const onStyleMenuKeyDown = (event: KeyboardEvent): void => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopPropagation();
+    closeStyleMenu();
+  };
+
   const closeStyleMenu = (): void => {
-    styleMenu?.remove();
+    if (styleMenu === null) return;
+    styleMenu.remove();
     styleMenu = null;
+    document.removeEventListener("keydown", onStyleMenuKeyDown, true);
   };
 
   const specs: ButtonSpec[] = [
@@ -89,6 +101,7 @@ export function createToolbar(
         }
         styleMenu = menu;
         placeNear(menu, button.getBoundingClientRect(), host.getBoundingClientRect());
+        document.addEventListener("keydown", onStyleMenuKeyDown, true);
       },
     },
     {

@@ -5,7 +5,14 @@ import { placeNear } from "./popover";
 export function openInputPopover(
   host: HTMLElement,
   anchor: DOMRect,
-  options: { placeholder: string; initial?: string; onSubmit(value: string): void },
+  options: {
+    placeholder: string;
+    initial?: string;
+    onSubmit(value: string): void;
+    /** 浮层以任何方式（提交/Esc/点击外部）关闭时调用一次，供调用方清空自己
+     *  持有的引用（与 openMarksPanel 的 MarksPanelHandlers.onClose 同款）。 */
+    onClose?(): void;
+  },
 ): { close(): void } {
   // mm-no-pan：画布上「界面元素」的通用标记（见 view.ts 的 attachCameraEvents），
   // 否则在浮层上按下并拖动会被画布当成平移手势处理。
@@ -23,6 +30,7 @@ export function openInputPopover(
     closed = true;
     document.removeEventListener("pointerdown", onDocPointerDown, true);
     wrap.remove();
+    options.onClose?.();
   }
 
   function onDocPointerDown(event: PointerEvent): void {

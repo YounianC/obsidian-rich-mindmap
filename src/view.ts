@@ -305,7 +305,11 @@ export class MindmapView extends TextFileView {
     const wrapped =
       node.text.startsWith(marker) &&
       node.text.endsWith(marker) &&
-      node.text.length > marker.length * 2;
+      // 边界情况：空节点被包一次后文本恰好是 marker+marker（长度等于
+      // marker.length*2），例如 "" -> "****"。这种情况必须算作「已包裹」，
+      // 否则会被误判成「未包裹」再包一层，永远无法转回空字符串——
+      // 用 >= 而不是 >，别再收紧回 >。
+      node.text.length >= marker.length * 2;
 
     const text = wrapped
       ? node.text.slice(marker.length, node.text.length - marker.length)
@@ -343,6 +347,9 @@ export class MindmapView extends TextFileView {
         if (node === null) return;
         const text = node.text === "" ? `[[${value}]]` : `${node.text} [[${value}]]`;
         this.applyDoc({ ...this.doc, root: setText(this.doc.root, id, text) });
+      },
+      onClose: () => {
+        this.inputPopover = null;
       },
     });
   }
