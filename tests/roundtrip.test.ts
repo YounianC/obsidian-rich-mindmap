@@ -43,6 +43,10 @@ const CORPUS: string[] = [
   "# t\n\n- a\n    - b\n",
   "# t\n\n- a\n   - b\n",
   "# t\n\n- a\n\t- b\n\t\t- c\n\t\t\t- d\n",
+  // 缩进单位推断不依赖一级标题：无标题的任务列表/片段笔记同样常见，同样不该
+  // 因为用导图视图打开过一次就被整篇改写缩进。
+  "- a\n\t- b\n",
+  "- a\n    - b\n",
 ];
 
 describe("serialize(parse(md)) === md", () => {

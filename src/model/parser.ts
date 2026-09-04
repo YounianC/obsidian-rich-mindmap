@@ -244,9 +244,11 @@ export function parse(md: string, fileName: string): MindDoc {
   const firstBullet = items[0]?.bullet;
   if (firstBullet !== undefined) root.bullet = firstBullet;
   buildTree(items, root);
-  // 没有一级标题时不推断真实缩进单位，直接兜底两空格：这种文件里的列表
-  // 块脱离了标题上下文，属于本插件不主动优化的边缘情形（见 MindDoc.indentUnit）。
-  const indentUnit = hasHeading ? detectIndentUnitString(items) : "  ";
+  // 只要找到了列表块就推断缩进单位，无关乎有没有一级标题：无标题的任务列表、
+  // 片段笔记同样是常见文件形态，用它们打开导图视图再切走不该触发全文件重写
+  // （见 MindDoc.indentUnit）。真正的兜底只有 detectIndentUnitString 内部
+  // 的三种情形：没有列表块、没有比基准更深的条目、缩进无法归纳为单一单位。
+  const indentUnit = detectIndentUnitString(items);
 
   return {
     indentUnit,
