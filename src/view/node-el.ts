@@ -23,7 +23,17 @@ function piePath(fraction: number, cx: number, cy: number, r: number): string {
   return `M ${cx} ${cy} L ${cx} ${cy - r} A ${r} ${r} 0 ${largeArc} 1 ${x} ${y} Z`;
 }
 
-function buildProgress(progress: number, parent: HTMLElement): void {
+export function buildPriorityBadge(
+  priority: number,
+  parent: HTMLElement,
+): HTMLElement {
+  const badge = el("span", `mm-mark mm-priority mm-priority-${priority}`, parent);
+  badge.textContent = String(priority);
+  badge.title = `优先级 ${priority}`;
+  return badge;
+}
+
+export function buildProgressBadge(progress: number, parent: HTMLElement): HTMLElement {
   const stage = progressStage(progress);
   const wrap = el("span", "mm-mark mm-progress", parent);
   wrap.title = `进度 ${progress}%`;
@@ -39,39 +49,40 @@ function buildProgress(progress: number, parent: HTMLElement): void {
   if (stage === 6) {
     const check = svgEl("path", "mm-progress-check", svg);
     check.setAttribute("d", "M 4.5 8.5 L 7 11 L 11.5 5.5");
-    return;
+    return wrap;
   }
   if (stage === 0) {
     const hands = svgEl("path", "mm-progress-hands", svg);
     hands.setAttribute("d", "M 8 4.5 L 8 8 L 10.5 9.5");
-    return;
+    return wrap;
   }
   const wedge = svgEl("path", "mm-progress-wedge", svg);
   wedge.setAttribute("d", piePath(PROGRESS_FRACTIONS[stage], 8, 8, 7));
+  return wrap;
 }
 
-function buildFlag(flag: FlagColor, parent: HTMLElement): void {
+export function buildFlagBadge(flag: FlagColor, parent: HTMLElement): HTMLElement {
   const wrap = el("span", `mm-mark mm-flag mm-flag-${flag}`, parent);
   wrap.title = `旗帜 ${flag}`;
   const svg = svgEl("svg", "mm-flag-svg", wrap);
   svg.setAttribute("viewBox", "0 0 16 16");
   const path = svgEl("path", "mm-flag-glyph", svg);
   path.setAttribute("d", "M 5 3 L 5 13 M 5 3.5 L 12 3.5 L 10.5 6.5 L 12 9.5 L 5 9.5");
+  return wrap;
 }
 
 function buildMarks(marks: Marks, parent: HTMLElement): void {
-  if (marks.priority === undefined && marks.progress === undefined && marks.flag === undefined) {
+  if (
+    marks.priority === undefined &&
+    marks.progress === undefined &&
+    marks.flag === undefined
+  ) {
     return;
   }
   const wrap = el("span", "mm-marks", parent);
-
-  if (marks.priority !== undefined) {
-    const badge = el("span", `mm-mark mm-priority mm-priority-${marks.priority}`, wrap);
-    badge.textContent = String(marks.priority);
-    badge.title = `优先级 ${marks.priority}`;
-  }
-  if (marks.progress !== undefined) buildProgress(marks.progress, wrap);
-  if (marks.flag !== undefined) buildFlag(marks.flag, wrap);
+  if (marks.priority !== undefined) buildPriorityBadge(marks.priority, wrap);
+  if (marks.progress !== undefined) buildProgressBadge(marks.progress, wrap);
+  if (marks.flag !== undefined) buildFlagBadge(marks.flag, wrap);
 }
 
 /**

@@ -325,3 +325,53 @@
   border: 2px dashed var(--interactive-accent);
   border-radius: 6px;
 }
+
+/* ---------- 标记面板 ---------- */
+
+.mm-panel {
+  position: absolute;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-s);
+}
+
+.mm-panel-title {
+  margin-bottom: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.mm-panel-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.mm-panel-option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  background: transparent;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.mm-panel-option:hover {
+  background: var(--background-modifier-hover);
+}
+
+.mm-panel-option.mm-active {
+  border-color: var(--interactive-accent);
+}

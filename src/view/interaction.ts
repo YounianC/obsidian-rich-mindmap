@@ -38,6 +38,15 @@ export function attachInteractions(host: InteractionHost): void {
 
   host.on("pointerdown", (event: PointerEvent) => {
     if (host.isEditing()) return;
+    // 画布上的「界面元素」（工具栏/浮层，约定用 .mm-no-pan 标记，见 controls.ts
+    // 与 marks-panel.ts）按下时不改变选择。这里必须显式判断，不能依赖
+    // nodeIdFrom 返回 null 时的行为——那本是「点在空白画布上」的取消选中语义，
+    // 但界面元素同样不在 .mm-node 内，若不排除，点面板里的选项或工具栏按钮都会
+    // 先把当前选中节点清空，而这些交互恰恰是针对被选中节点发起的。
+    const target = event.target;
+    if (target instanceof HTMLElement && target.closest(".mm-no-pan") !== null) {
+      return;
+    }
     const id = nodeIdFrom(event.target);
     host.dispatch({ kind: "select", id });
     // 让键盘事件回到画布，否则焦点留在按钮上。
