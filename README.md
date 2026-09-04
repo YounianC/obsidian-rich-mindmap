@@ -6,9 +6,9 @@ An Obsidian plugin that turns an indented Markdown list into an editable mind ma
 
 > **Note on language:** the plugin's user interface is currently Chinese only (command names, tooltips, settings, error messages). There is no i18n yet. Everything below describes behaviour, not UI strings.
 
-<!-- Screenshot goes here: one shot of the mindmap view, ideally one for light
-     and one for dark theme. This is a visual tool; a README without a
-     screenshot makes people much less likely to try it. -->
+![The example file open in mindmap view: five colour-coded branches, priority badges, progress pies, flag markers, a collapsed branch showing a child count, and the floating toolbar next to the selected node.](docs/images/screenshot.png)
+
+*The [example file](examples/conference-talk.md) open in mindmap view.*
 
 ## How it differs from other mindmap plugins
 
