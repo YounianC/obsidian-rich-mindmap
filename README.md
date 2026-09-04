@@ -127,7 +127,7 @@ After the marks group is stripped, the rest of a node's text is rendered as inli
 | `[[page]]` / `[[page|alias]]` | a clickable internal link |
 | `[text](url)` | a clickable external link, opened in a new tab |
 
-Unmatched or malformed markers (an unclosed `**`, a stray `*`) fall back to plain text — they are never dropped or turned into an error. `#tags`, images and raw HTML are **not** rendered; a node's text is preserved as-is (that's how `#tags` keep working elsewhere in your vault), it just isn't turned into a link or embed on the canvas. This rendering is what the toolbar's bold/italic/strikethrough/link buttons write.
+Unmatched or malformed markers (an unclosed `**`, a stray `*`) fall back to plain text — they are never dropped or turned into an error. `#tags` and raw HTML are **not** rendered; a node's text is preserved as-is (that's how `#tags` keep working elsewhere in your vault). There is no image support: `![alt](url)` is not recognised as an image syntax, so it degrades to a literal `!` followed by a plain clickable link to the image file — the same treatment any other `[text](url)` gets — not an embedded picture. This rendering is what the toolbar's bold/italic/strikethrough/link buttons write.
 
 ### Working with AI
 
@@ -205,7 +205,7 @@ GitHub Actions runs the type check, unit tests, purity check and build, and only
 
 Version `0.1.0`, personal-use stage.
 
-- The pure-function layer (parsing, serialization, marks, collapse state, tree operations, layout, camera) has 232 automated tests, including Markdown round-trip property tests.
+- The pure-function layer (parsing, serialization, marks, collapse state, tree operations, layout, camera) has 237 automated tests, including Markdown round-trip property tests.
 - The view layer (rendering, zoom/pan, keyboard, drag, toolbar) is verified **by hand** by design. The checklist lives in [docs/MANUAL-VERIFICATION.md](docs/MANUAL-VERIFICATION.md) and **has not been worked through end to end yet**. Its appendix lists ten defects that were found and fixed during development — that is where regressions are most likely.
 - The UI is Chinese only; no i18n yet.
 

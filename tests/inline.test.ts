@@ -278,6 +278,67 @@ describe("parseInline — token 往返（无歧义样例）", () => {
   }
 });
 
+describe("parseInline — 性能回归（parseSpan 按 (start, closer) 记忆化）", () => {
+  // 单个重复单元里 **、*、~~ 各只出现一次，谁都配不成对，整体只能退化成字面
+  // 文本——这个结果是手工逐步模拟算法核对过的（过程见
+  // .superpowers/inline-markdown-report.md「Fix round 1」一节），作为下面大
+  // 输入场景的语义基准锚点：如果将来有人把 parseSpan 优化成别的实现，只要
+  // 输出形状变了，这一条会先炸，逼着改动者解释为什么。
+  const UNIT = "**a*b~~c";
+
+  it("单个重复单元没有任何标记能配对，整体退化为字面文本（人工核对过的基准）", () => {
+    expect(parseInline(UNIT)).toEqual([{ kind: "text", text: UNIT }]);
+  });
+
+  it("大量标记混杂且大部分不闭合时不再指数级爆炸——240 字符（.repeat(30)）在极短时间内完成", () => {
+    // 记忆化之前，这个长度的输入实测 >15s（见任务里贴出的测量表格）。
+    const input = UNIT.repeat(30);
+    const start = performance.now();
+    const tokens = parseInline(input);
+    const elapsed = performance.now() - start;
+    expect(elapsed).toBeLessThan(500);
+    // 不丢字符：token 树还原后与原文逐字节相等。
+    expect(reconstruct(tokens)).toBe(input);
+  });
+
+  it("2400 字符（.repeat(300)）同样在 500ms 内完成，且不丢字符", () => {
+    const input = UNIT.repeat(300);
+    const start = performance.now();
+    const tokens = parseInline(input);
+    const elapsed = performance.now() - start;
+    expect(elapsed).toBeLessThan(500);
+    expect(reconstruct(tokens)).toBe(input);
+  });
+
+  it("记忆化缓存按单次 parseInline 调用隔离——同一大输入解析两次，结果完全一致（deepEqual，不只是 round-trip 字符串相等）", () => {
+    const input = UNIT.repeat(30);
+    const first = parseInline(input);
+    const second = parseInline(input);
+    expect(second).toEqual(first);
+  });
+
+  it("记忆化本身不限制递归深度，深度会随字符数线性增长——超大输入不再栈溢出", () => {
+    // 记忆化解决的是「同一 (start, closer) 被重复计算」这个时间问题，不解决
+    // 「未闭合标记会让递归链条越叠越深」这个空间问题：这种混杂标记的输入，
+    // 递归深度大约是字符数的 0.375 倍。16000 字符（.repeat(2000)）已经明显
+    // 超过实测会让未加深度上限的版本在 Node 20 里抛
+    // `RangeError: Maximum call stack size exceeded` 的临界点（约 8000 字符、
+    // 深度约 3000，且该临界点本身随 JIT 预热状态漂移、不可靠）。这里选一个
+    // 有充分余量的长度，只要不抛异常、时间在门槛内、字符不丢，就说明
+    // `MAX_DEPTH` 兜底生效了。
+    const input = UNIT.repeat(2000); // 16000 字符
+    const start = performance.now();
+    let tokens: ReturnType<typeof parseInline> | undefined;
+    expect(() => {
+      tokens = parseInline(input);
+    }).not.toThrow();
+    const elapsed = performance.now() - start;
+    expect(elapsed).toBeLessThan(500);
+    expect(tokens).toBeDefined();
+    expect(reconstruct(tokens as InlineToken[])).toBe(input);
+  });
+});
+
 describe("parseInline — 综合场景（截图里出现过的真实缺陷）", () => {
   it("同一节点里混杂多种语法都能正确解析", () => {
     const text =

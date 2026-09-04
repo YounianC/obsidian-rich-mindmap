@@ -50,10 +50,72 @@ interface SpanResult {
 }
 
 /**
+ * `parseSpan` 的记忆化缓存，key 是 `${start}:${closer}`。`closer` 只有四种取值
+ * （`null`/`"**"`/`"*"`/`"~~"`），所以 key 空间是 O(4n)。
+ *
+ * 为什么需要它：未闭合的 `**`/`*`/`~~` 会让"从某个位置尝试某种闭合符"这个子
+ * 问题在不同的递归上下文里被重复求解——一次是某个外层标记尝试匹配、失败后
+ * 在其内部递归里顺带算过的，另一次是外层失败后主循环从原地重新扫描时再次
+ * 触发的。两次调用的 `(start, closer)` 完全相同，结果也必然相同（`parseSpan`
+ * 是纯函数，只依赖 `text`/`start`/`closer`），互不影响，可以安全共享。不加
+ * 记忆化时，形如 `"**a*b~~c".repeat(n)` 这种"标记混杂且大量不闭合"的输入会
+ * 触发指数级的重复子问题求解——64 字符输入约 3.3k 次调用，字符数每 +32 大约
+ * 翻 16 倍，160 字符就要 1.27s、200 字符以上直接挂死；这正是把节点文字塞进
+ * 同步渲染管线（AGENTS.md「一句话架构」）想要杜绝的场景：一个这样的节点会在
+ * 每次 render() 时冻结 Obsidian 主线程。加上按 (start, closer) 的记忆化后，
+ * 每个 key 只真正求解一次，总工作量降到多项式级别（详见
+ * tests/inline.test.ts 里 `.repeat(30)`/`.repeat(300)` 的性能回归测试）。
+ */
+type SpanCache = Map<string, SpanResult>;
+
+function spanCacheKey(start: number, closer: string | null): string {
+  return `${start}:${closer ?? ""}`;
+}
+
+/**
+ * `parseSpan` 的递归深度上限。记忆化解决的是重复计算（时间），但完全不限制
+ * 单次调用链的深度（空间）——每遇到一个未闭合的 `**`/`~~`/`*` 就会往下多递归
+ * 一层去找它的闭合符，而这个"往下一层"的次数在 `"**a*b~~c".repeat(n)` 这类
+ * 标记混杂、大量不闭合的输入上，是随字符数**线性增长**的（实测约
+ * `0.375 × 字符数`：2400 字符时递归深度约 900，8000 字符时约 3000）。
+ * Node 20 的默认调用栈在深度 3000 附近就开始不稳定——同一段代码，冷启动直接
+ * 跑会在 8000 字符处抛 `RangeError: Maximum call stack size exceeded`，
+ * JIT 热身过后反而不抛，说明这条边界本来就贴着 V8 的栈预算走、不可预测，
+ * 换成 Electron 渲染进程（Obsidian 的实际运行环境，栈预算可能更小）只会更容易
+ * 触发，而不是更难。这不是构造出来的攻击输入——用户往一个节点里粘一段几千
+ * 字符、夹杂大量星号/波浪线的文本（代码、数学记号、口语化的强调）就够得着。
+ * 崩溃比原来的"卡死"更糟：那是一个未捕获异常，会在 `render()` 内部——同步
+ * 渲染管线的核心路径上——直接抛出。
+ *
+ * 修法：给递归深度设一个远高于任何真实嵌套需求、又远低于任何危险栈深度的
+ * 硬上限。真实的 Markdown 嵌套（`**a *b ~~c~~* d**` 这种）几乎不可能超过个位数
+ * 层级，100 已经是极大的余量；一旦某个位置的递归深度达到这个上限，直接放弃
+ * 为它打开新的标记尝试、把开启符当字面文本处理——不递归、不抛异常、不丢
+ * 字符，只是那个位置往后不再尝试识别标记（真实文本几乎不会撞到这个上限，
+ * 见 tests/inline.test.ts 里 `.repeat(2000)` 那条深度回归测试）。这只是加了
+ * 一个提前退出条件，不改变现有的记忆化缓存/扫描逻辑，不是把算法换成
+ * delimiter-stack scanner。
+ */
+const MAX_DEPTH = 100;
+
+/**
  * 解析 `text[start..)` 直到遇到 `closer`（闭合并消费掉它）或扫到字符串末尾
  * （未闭合）。`closer` 为 `null` 表示顶层调用，解析到字符串末尾为止。
+ * `depth` 是当前递归深度（顶层调用传 0），用于 `MAX_DEPTH` 兜底，见上面的
+ * 说明；它不参与缓存 key——同一个 `(start, closer)` 不管在哪个深度被请求，
+ * 只要缓存里已经有答案就直接复用。
  */
-function parseSpan(text: string, start: number, closer: string | null): SpanResult {
+function parseSpan(
+  text: string,
+  start: number,
+  closer: string | null,
+  cache: SpanCache,
+  depth: number,
+): SpanResult {
+  const key = spanCacheKey(start, closer);
+  const cached = cache.get(key);
+  if (cached !== undefined) return cached;
+
   const tokens: InlineToken[] = [];
   let buf = "";
   let pos = start;
@@ -66,10 +128,15 @@ function parseSpan(text: string, start: number, closer: string | null): SpanResu
     }
   };
 
+  const finish = (result: SpanResult): SpanResult => {
+    cache.set(key, result);
+    return result;
+  };
+
   while (pos < len) {
     if (closer !== null && text.startsWith(closer, pos)) {
       flush();
-      return { tokens, end: pos + closer.length, closed: true };
+      return finish({ tokens, end: pos + closer.length, closed: true });
     }
 
     const ch = text[pos] as string;
@@ -138,8 +205,8 @@ function parseSpan(text: string, start: number, closer: string | null): SpanResu
 
     // 加粗：`**...**`，先于单星号斜体判断。
     if (text.startsWith("**", pos)) {
-      const inner = parseSpan(text, pos + 2, "**");
-      if (inner.closed) {
+      const inner = depth < MAX_DEPTH ? parseSpan(text, pos + 2, "**", cache, depth + 1) : null;
+      if (inner !== null && inner.closed) {
         flush();
         tokens.push({ kind: "strong", children: inner.tokens });
         pos = inner.end;
@@ -152,8 +219,8 @@ function parseSpan(text: string, start: number, closer: string | null): SpanResu
 
     // 删除线：`~~...~~`。
     if (text.startsWith("~~", pos)) {
-      const inner = parseSpan(text, pos + 2, "~~");
-      if (inner.closed) {
+      const inner = depth < MAX_DEPTH ? parseSpan(text, pos + 2, "~~", cache, depth + 1) : null;
+      if (inner !== null && inner.closed) {
         flush();
         tokens.push({ kind: "del", children: inner.tokens });
         pos = inner.end;
@@ -166,8 +233,8 @@ function parseSpan(text: string, start: number, closer: string | null): SpanResu
 
     // 斜体：单个 `*`。刻意不支持 `_`，见文件头注释。
     if (ch === "*") {
-      const inner = parseSpan(text, pos + 1, "*");
-      if (inner.closed) {
+      const inner = depth < MAX_DEPTH ? parseSpan(text, pos + 1, "*", cache, depth + 1) : null;
+      if (inner !== null && inner.closed) {
         flush();
         tokens.push({ kind: "em", children: inner.tokens });
         pos = inner.end;
@@ -183,9 +250,10 @@ function parseSpan(text: string, start: number, closer: string | null): SpanResu
   }
 
   flush();
-  return { tokens, end: pos, closed: false };
+  return finish({ tokens, end: pos, closed: false });
 }
 
 export function parseInline(text: string): InlineToken[] {
-  return parseSpan(text, 0, null).tokens;
+  const cache: SpanCache = new Map();
+  return parseSpan(text, 0, null, cache, 0).tokens;
 }
