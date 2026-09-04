@@ -1,4 +1,5 @@
 import { MarkdownView, Notice, Plugin, TFile, type WorkspaceLeaf } from "obsidian";
+import { setMindmapFlag } from "./model/collapse-state";
 import {
   DEFAULT_SETTINGS,
   MindmapSettingTab,
@@ -37,6 +38,18 @@ export default class MindmapPlugin extends Plugin {
         if (view === null || file === null || file.extension !== "md") return false;
         if (checking) return true;
         void this.toggleView(view.leaf, file);
+        return true;
+      },
+    });
+
+    this.addCommand({
+      id: "mark-as-mindmap",
+      name: "标记为思维导图（写入 frontmatter）",
+      checkCallback: (checking: boolean) => {
+        const file = this.app.workspace.getActiveFile();
+        if (file === null || file.extension !== "md") return false;
+        if (checking) return true;
+        void this.markAsMindmap(file);
         return true;
       },
     });
@@ -89,6 +102,28 @@ export default class MindmapPlugin extends Plugin {
           .finally(() => this.flipping.delete(file.path));
       }),
     );
+  }
+
+  /**
+   * 直接对文件文本做 frontmatter 补丁，不经过 MindmapView：文件不必是当前
+   * 打开的、更不必已经是导图视图，才能执行这条命令。
+   */
+  private async markAsMindmap(file: TFile): Promise<void> {
+    await this.app.vault.process(file, (raw) => {
+      // 先归一化 CRLF → LF，再拼接 frontmatter：如果不做这一步，当原文件
+      // 是 CRLF 时，下面重建的 frontmatter 块（固定用 \n 拼接）会和原样保留的
+      // 正文（仍是 \r\n）拼在一起，产生一个换行符混用的文件。归一成 LF 与
+      // model/parser.ts 对同一 frontmatter 正则的处理方式保持一致，也是
+      // README 里写明的三种写回归一化之一。
+      const content = raw.replace(/\r\n/g, "\n");
+      const match = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(content);
+      if (match === null) {
+        return `---\n${setMindmapFlag(null, true)}\n---\n\n${content}`;
+      }
+      const updated = setMindmapFlag(match[1], true);
+      return `---\n${updated}\n---\n${content.slice(match[0].length)}`;
+    });
+    new Notice("已标记为思维导图。");
   }
 
   private async toggleView(leaf: WorkspaceLeaf, file: TFile): Promise<void> {

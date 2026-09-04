@@ -459,3 +459,35 @@
 .mm-input-popover .mm-input {
   width: 200px;
 }
+
+/* ---------- 错误态 ---------- */
+
+.mm-error {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+  max-width: 560px;
+  margin: 48px auto;
+  padding: 20px 24px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+}
+
+.mm-error-title {
+  color: var(--text-error);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.mm-error-detail {
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.mm-error-btn {
+  margin-top: 4px;
+}
