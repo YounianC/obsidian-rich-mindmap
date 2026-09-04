@@ -100,13 +100,17 @@ mindmap-collapsed:
 
 ## 安装
 
-插件还没有提交到 Obsidian 社区插件市场，需要手动安装。
+**方式一：社区插件市场（推荐）**
 
-**方式一：从 Releases 下载**
+设置 → 第三方插件 → 浏览，搜索 **Rich Mindmap**，安装并启用。市场页在 [community.obsidian.md/plugins/rich-mindmap](https://community.obsidian.md/plugins/rich-mindmap)。
+
+需要 Obsidian **1.8.7** 或更高版本（界面语言设置要读 Obsidian 自身的语言，用的是那个版本才有的 API）。
+
+**方式二：从 Releases 下载**
 
 到 [最新 release](https://github.com/YounianC/obsidian-rich-mindmap/releases/latest) 下载 `main.js`、`manifest.json`、`styles.css` 三个文件，放进 vault 的 `.obsidian/plugins/rich-mindmap/` 目录，然后在 设置 → 社区插件 里启用「Rich Mindmap」。
 
-**方式二：从源码构建**
+**方式三：从源码构建**
 
 ```bash
 git clone https://github.com/YounianC/obsidian-rich-mindmap.git
@@ -258,11 +262,10 @@ GitHub Actions 会跑完类型检查、单元测试、纯函数层校验与构�
 
 ## 项目状态
 
-版本 `0.1.0`，自用阶段。
+社区插件市场上的版本是 `0.1.1`。`0.2.0`（界面语言设置，同时把 Obsidian 的最低要求抬到 1.8.7）已在仓库里准备好，尚未发布。
 
-- **界面文字目前只有中文**（命令名、按钮提示、设置项、错误提示）。尚未做 i18n。
-- 纯函数层（解析、序列化、标记、折叠状态、树操作、布局、相机）有 237 个自动化测试，含 Markdown 往返属性测试。
-- 视图层（渲染、缩放平移、键盘、拖拽、工具栏）按设计是**人工验证**的，清单在 [docs/MANUAL-VERIFICATION.md](docs/MANUAL-VERIFICATION.md)。该清单尚未完整走完，其附录列出了开发过程中真实出现并修复的 10 个缺陷 —— 如果你要改动相关代码，那里是回归的高发区。
+- 纯函数层（解析、序列化、标记、折叠状态、树操作、布局、相机、i18n）有 341 个自动化测试，含 Markdown 往返属性测试。
+- 视图层（渲染、缩放平移、键盘、拖拽、工具栏）按设计是**人工验证**的，上架并不改变这一点。清单在 [docs/MANUAL-VERIFICATION.md](docs/MANUAL-VERIFICATION.md)：「能打开、能渲染、不损坏文件」那一节与全部 16 项 🔴 高危项已通过，**其余各节尚未走完**。其附录列出了开发过程中真实出现并修复的缺陷 —— 如果你要改动相关代码，那里是回归的高发区。
 
 因为插件会重写你的笔记文件，**首次使用建议先在一个测试 vault、或已被 git 跟踪的目录里验证写回行为**，确认无误再指向重要笔记。
 
