@@ -1,7 +1,7 @@
 {
   "id": "rich-mindmap",
   "name": "Rich Mindmap",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "minAppVersion": "1.5.0",
   "description": "Editable mind maps backed by plain Markdown lists, with priority, progress and flag marks and drag to reorganize.",
   "author": "younian",
