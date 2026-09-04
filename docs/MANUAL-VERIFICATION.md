@@ -21,16 +21,16 @@ node scripts/check-purity.mjs   # 纯函数层边界校验（src/model/*.ts 6 �
 
 ## 1. 环境准备
 
-1. 仓库根目录已有 `test-vault/`（gitignore，不进 git），其中 `.obsidian/plugins/obsidian-mindmap/` 通过符号链接指向仓库根的 `main.js`/`manifest.json`/`styles.css`，`工作内容.md` 是示例导图文件。若目录或链接缺失，重建：
+1. 仓库根目录已有 `test-vault/`（gitignore，不进 git），其中 `.obsidian/plugins/rich-mindmap/` 通过符号链接指向仓库根的 `main.js`/`manifest.json`/`styles.css`，`工作内容.md` 是示例导图文件。若目录或链接缺失，重建：
    ```bash
    npm run build
-   mkdir -p test-vault/.obsidian/plugins/obsidian-mindmap
-   ln -sf "$PWD/main.js" test-vault/.obsidian/plugins/obsidian-mindmap/main.js
-   ln -sf "$PWD/manifest.json" test-vault/.obsidian/plugins/obsidian-mindmap/manifest.json
-   ln -sf "$PWD/styles.css" test-vault/.obsidian/plugins/obsidian-mindmap/styles.css
+   mkdir -p test-vault/.obsidian/plugins/rich-mindmap
+   ln -sf "$PWD/main.js" test-vault/.obsidian/plugins/rich-mindmap/main.js
+   ln -sf "$PWD/manifest.json" test-vault/.obsidian/plugins/rich-mindmap/manifest.json
+   ln -sf "$PWD/styles.css" test-vault/.obsidian/plugins/rich-mindmap/styles.css
    ```
-2. 每次改代码后需要 `npm run build`（或 `npm run dev` 开 watch）重新生成 `main.js`，符号链接是活的，Obsidian 里手动 reload 插件（设置 → 社区插件 → 关闭再打开「思维导图」，或 Cmd/Ctrl+P 执行 "Reload app without saving"）即可看到最新代码。
-3. 用 Obsidian 打开 `test-vault` 作为 vault，进入设置 → 社区插件，关闭「安全模式」，启用「思维导图」插件。
+2. 每次改代码后需要 `npm run build`（或 `npm run dev` 开 watch）重新生成 `main.js`，符号链接是活的，Obsidian 里手动 reload 插件（设置 → 社区插件 → 关闭再打开「Rich Mindmap」，或 Cmd/Ctrl+P 执行 "Reload app without saving"）即可看到最新代码。
+3. 用 Obsidian 打开 `test-vault` 作为 vault，进入设置 → 社区插件，关闭「安全模式」，启用「Rich Mindmap」插件。
 4. 建议亮色、暗色两套 Obsidian 主题各跑一遍下面的核心检查（第 2、3、5 节），因为所有颜色都来自 Obsidian CSS 变量，只有真实渲染才能看出对比度问题。
 
 ---

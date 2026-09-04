@@ -1,9 +1,9 @@
 {
-  "id": "obsidian-mindmap",
-  "name": "思维导图",
+  "id": "rich-mindmap",
+  "name": "Rich Mindmap",
   "version": "0.1.0",
   "minAppVersion": "1.5.0",
-  "description": "把 Markdown 缩进列表渲染成可编辑的思维导图，原始数据始终是普通 Markdown。",
+  "description": "Editable mind maps backed by plain Markdown lists — priority, progress and flag marks, drag to reorganize. 可直接编辑的思维导图，数据就是普通 Markdown 缩进列表，支持优先级、进度、旗帜标记。",
   "author": "younian",
   "isDesktopOnly": false
 }

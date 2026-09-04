@@ -1,5 +1,5 @@
 {
-  "name": "obsidian-mindmap",
+  "name": "rich-mindmap",
   "version": "0.1.0",
   "directories": {
     "doc": "docs"
@@ -14,7 +14,7 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "Obsidian 本地思维导图",
+  "description": "Rich Mindmap — Obsidian plugin: editable mind maps backed by plain Markdown lists.",
   "type": "module",
   "private": true,
   "devDependencies": {

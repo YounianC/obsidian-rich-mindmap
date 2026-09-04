@@ -3,3 +3,4 @@ main.js
 *.js.map
 .DS_Store
 test-vault/
+data.json
