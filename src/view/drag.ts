@@ -27,10 +27,25 @@ export function zoneFromOffset(offsetY: number, height: number): DropZone {
   return "child";
 }
 
-function nodeElAt(x: number, y: number): HTMLElement | null {
-  const hit = document.elementFromPoint(x, y);
-  if (!(hit instanceof HTMLElement)) return null;
-  return hit.closest<HTMLElement>(".mm-node");
+/** 隐藏浮层再做命中测试，否则总是命中自己；用 try/finally 保证一定会恢复显示。 */
+function nodeElAt(
+  x: number,
+  y: number,
+  ghost: HTMLElement | null,
+  indicator: HTMLElement | null,
+): HTMLElement | null {
+  const ghostDisplay = ghost?.style.display ?? "";
+  const indicatorDisplay = indicator?.style.display ?? "";
+  try {
+    if (ghost !== null) ghost.style.display = "none";
+    if (indicator !== null) indicator.style.display = "none";
+    const hit = document.elementFromPoint(x, y);
+    if (!(hit instanceof HTMLElement)) return null;
+    return hit.closest<HTMLElement>(".mm-node");
+  } finally {
+    if (ghost !== null) ghost.style.display = ghostDisplay;
+    if (indicator !== null) indicator.style.display = indicatorDisplay;
+  }
 }
 
 interface DragState {
@@ -38,6 +53,7 @@ interface DragState {
   startX: number;
   startY: number;
   active: boolean;
+  pointerId: number | null;
   ghost: HTMLElement | null;
   indicator: HTMLElement | null;
   target: DropTarget | null;
@@ -47,7 +63,20 @@ interface DragState {
 export function attachDrag(host: DragHost): void {
   let state: DragState | null = null;
 
+  // 收尾必须走这一条路径：pointerup、pointercancel、pointermove 里的
+  // buttons===0 早退分支、以及下一次 pointerdown 开头的兜底清理，全部调用它。
+  // 释放指针捕获放在移除浮层之前，且用 try/catch 包住——指针 id 已经失效或
+  // 被系统提前释放时会抛错，若排在移除浮层之后且不捕获异常，会导致 ghost/
+  // indicator 残留在 DOM 里，和本函数要防的问题一样。
   const teardown = (): void => {
+    if (state?.pointerId !== null && state?.pointerId !== undefined) {
+      try {
+        host.root.releasePointerCapture(state.pointerId);
+      } catch {
+        // 指针 id 未知或已释放（例如 pointercancel 之后浏览器已自动释放）时会
+        // 抛出，这里只是收尾状态，吞掉即可。
+      }
+    }
     state?.ghost?.remove();
     state?.indicator?.remove();
     host.root.removeClass("mm-dragging");
@@ -55,6 +84,13 @@ export function attachDrag(host: DragHost): void {
   };
 
   host.on("pointerdown", (event: PointerEvent) => {
+    // 若上一次手势的 pointerup/pointercancel 因为指针移出了 this.root 的
+    // 子树而从未送达（拖到侧边栏、标签栏、窗口外都会发生——这些都是 Obsidian
+    // 里稀松平常的布局），上一个 state 就会残留为非 null，其 ghost/indicator
+    // 也还挂在 DOM 里。新手势开始前先兜底清理一次，否则每次中断的拖拽都会
+    // 多留下一对浮层，越积越多。
+    if (state !== null) teardown();
+
     if (host.isEditing() || event.button !== 0) return;
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
@@ -69,6 +105,7 @@ export function attachDrag(host: DragHost): void {
       startX: event.clientX,
       startY: event.clientY,
       active: false,
+      pointerId: null,
       ghost: null,
       indicator: null,
       target: null,
@@ -93,6 +130,17 @@ export function attachDrag(host: DragHost): void {
       if (moved < DRAG_THRESHOLD_PX) return;
 
       state.active = true;
+      state.pointerId = event.pointerId;
+      // 只在真正越过阈值、确认这是一次拖拽而非普通点击/双击时才捕获指针；
+      // 放在 pointerdown 里会对每一次点击和双击生效，干扰 Task 11 的选择与
+      // 双击进入编辑。捕获后即便指针移出 this.root 的可视区域，move/up/cancel
+      // 仍会持续送达这里，不再依赖事件冒泡命中 this.root 子树。
+      try {
+        host.root.setPointerCapture(event.pointerId);
+      } catch {
+        // 指针 id 无效等极端情况下会抛出；不影响后续用坐标做的命中测试逻辑，
+        // 吞掉即可，teardown() 里的 release 同样有 try/catch 兜底。
+      }
       host.root.addClass("mm-dragging");
 
       const ghost = document.createElement("div");
@@ -106,19 +154,18 @@ export function attachDrag(host: DragHost): void {
       state.indicator = indicator;
     }
 
+    // 拖拽已激活：阻止原生的文本选中/拖拽手势与自定义拖拽并行，避免松手后
+    // 画布上残留一段被选中的文字高亮。不能放在 pointerdown 上，那会破坏
+    // Task 11 依赖的原生 focus 行为（选择、双击进入编辑）。
+    event.preventDefault();
+
     const rootRect = host.root.getBoundingClientRect();
     if (state.ghost !== null) {
       state.ghost.style.left = `${event.clientX - rootRect.left}px`;
       state.ghost.style.top = `${event.clientY - rootRect.top}px`;
     }
 
-    // 隐藏浮层再做命中测试，否则总是命中自己。
-    const ghostDisplay = state.ghost?.style.display ?? "";
-    if (state.ghost !== null) state.ghost.style.display = "none";
-    if (state.indicator !== null) state.indicator.style.display = "none";
-    const hit = nodeElAt(event.clientX, event.clientY);
-    if (state.ghost !== null) state.ghost.style.display = ghostDisplay;
-    if (state.indicator !== null) state.indicator.style.display = "";
+    const hit = nodeElAt(event.clientX, event.clientY, state.ghost, state.indicator);
 
     const hitId = hit?.dataset.id;
     if (hit === null || hitId === undefined || hitId === state.sourceId) {
