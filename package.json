@@ -13,7 +13,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "description": "Rich Mindmap — Obsidian plugin: editable mind maps backed by plain Markdown lists.",
   "type": "module",
   "private": true,

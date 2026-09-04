@@ -147,3 +147,7 @@ npm run check:purity
 - [AGENTS.md](AGENTS.md) —— 给 AI agent 的工作说明：架构边界、十条硬约束、门禁，以及自动化测试覆盖不到的部分
 - [docs/MANUAL-VERIFICATION.md](docs/MANUAL-VERIFICATION.md) —— 92 项人工验证清单
 - [docs/superpowers/specs/](docs/superpowers/specs/) —— 设计与决策记录，含「已知限制」
+
+## License
+
+[MIT](LICENSE)
