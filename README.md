@@ -3,6 +3,42 @@
 把 Markdown 的缩进列表渲染成可编辑的思维导图，支持优先级、进度、旗帜标记。
 原始数据始终是普通 `.md` 文件 —— 你和 AI 读写的是同一份、结构清晰的 Markdown。
 
+<!-- 截图放这里：一张导图视图的截图（建议同时给亮色与暗色主题各一张）。
+     插件是视觉工具，README 没有截图会显著降低别人试用的意愿。 -->
+
+## 与其他思维导图插件的区别
+
+Obsidian 社区里的思维导图插件大致分两类：一类是基于 [markmap](https://markmap.js.org/) 的**只读预览**（把笔记渲染成导图但不能在导图上编辑），另一类建在 Obsidian Canvas 上、数据是 `.canvas` JSON。
+
+这个插件的取向是：
+
+- **可以直接在导图上编辑**，而数据仍然是普通 Markdown 缩进列表 —— 没有自有格式、没有坐标、没有 JSON
+- **支持优先级 / 进度 / 旗帜标记**，写在节点文字里，人和 AI 都能直接读写
+- **有明确的文件安全边界**：只允许五条字节级归一化（见下），由往返属性测试锁定
+
+可编辑这一点并非独有（社区里另有几个插件也做到了）；标记系统目前是这一类插件里少见的。
+
+## 安装
+
+插件还没有提交到 Obsidian 社区插件市场，需要手动安装。
+
+**方式一：从 Releases 下载**（如果已发布 release）
+
+下载 `main.js`、`manifest.json`、`styles.css` 三个文件，放进 vault 的 `.obsidian/plugins/rich-mindmap/` 目录，然后在 设置 → 社区插件 里启用「Rich Mindmap」。
+
+**方式二：从源码构建**
+
+```bash
+git clone https://github.com/YounianC/obsidian-rich-mindmap.git
+cd obsidian-rich-mindmap
+npm install
+npm run build          # 生成 main.js
+```
+
+然后把 `main.js`、`manifest.json`、`styles.css` 拷贝（或软链）到 `<你的 vault>/.obsidian/plugins/rich-mindmap/`。
+
+> `main.js` 是构建产物，不在版本库里 —— 需要自己 `npm run build` 或从 release 获取。
+
 ## 数据格式
 
 一级标题是根节点，之后第一段连续的无序列表就是导图树：
@@ -95,3 +131,19 @@ npm run check:purity
 ```
 
 `src/model/`（`collapse-state.ts`、`marks.ts`、`parser.ts`、`serializer.ts`、`tree-ops.ts`、`types.ts`）与 `src/view/layout.ts`、`src/view/camera.ts` 是纯函数层，不依赖 Obsidian API 与 DOM，由 `npm run check:purity` 强制校验，全部有单元测试覆盖。
+
+## 项目状态
+
+版本 `0.1.0`，自用阶段。
+
+- **界面文字目前只有中文**（命令名、按钮提示、设置项、错误提示）。尚未做 i18n。
+- 纯函数层（解析、序列化、标记、折叠状态、树操作、布局、相机）有 194 个自动化测试，含 Markdown 往返属性测试。
+- 视图层（渲染、缩放平移、键盘、拖拽、工具栏）按设计是**人工验证**的，清单在 [docs/MANUAL-VERIFICATION.md](docs/MANUAL-VERIFICATION.md)。该清单尚未完整走完，其附录列出了开发过程中真实出现并修复的 10 个缺陷 —— 如果你要改动相关代码，那里是回归的高发区。
+
+因为插件会重写你的笔记文件，**首次使用建议先在一个测试 vault、或已被 git 跟踪的目录里验证写回行为**，确认无误再指向重要笔记。
+
+## 文档
+
+- [AGENTS.md](AGENTS.md) —— 给 AI agent 的工作说明：架构边界、十条硬约束、门禁，以及自动化测试覆盖不到的部分
+- [docs/MANUAL-VERIFICATION.md](docs/MANUAL-VERIFICATION.md) —— 92 项人工验证清单
+- [docs/superpowers/specs/](docs/superpowers/specs/) —— 设计与决策记录，含「已知限制」
