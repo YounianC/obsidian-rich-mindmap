@@ -1,5 +1,9 @@
 # Obsidian 本地思维导图插件 Implementation Plan
 
+> **已更名**：本计划写于插件定名之前，文内的 `obsidian-mindmap` / 「思维导图」
+> 是当时的插件 id 与显示名。实际发布名为 **Rich Mindmap**（id `rich-mindmap`）。
+> 本文件作为历史记录保留原样，如照此重跑，请把 id 换成 `rich-mindmap`。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 为 Obsidian 实现一个本地思维导图视图，数据存为普通 Markdown 缩进列表 + 行内标记，支持完整编辑闭环、优先级/进度/旗帜标记、悬浮工具栏与美观的曲线渲染。
