@@ -2,7 +2,7 @@
 
 **English** · [简体中文](README.zh-CN.md)
 
-An Obsidian plugin that turns an indented Markdown list into an editable mind map, with priority, progress and flag marks. The source of truth stays a plain `.md` file — the same structured Markdown you and any AI read and write.
+An Obsidian plugin that turns an indented Markdown list into an editable mind map, with priority, progress and flag marks, and per-node notes. The source of truth stays a plain `.md` file — the same structured Markdown you and any AI read and write.
 
 ![The example file open in mindmap view: five colour-coded branches, priority badges, progress pies, flag markers, a collapsed branch showing a child count, and the floating toolbar next to the selected node.](docs/images/screenshot.png)
 
@@ -25,7 +25,7 @@ Editing is not unique to this plugin — several others manage it too. The mark 
 
 ## Example
 
-Copy [`examples/conference-talk.md`](examples/conference-talk.md) into your vault and open it in mindmap view. It exercises every feature: `##` / `###` sections forming the outer hierarchy, all seven priorities, all seven flag colours, progress across every stage, nested lists, wiki links, inline formatting, a parenthesized group that is *not* a mark, a collapsed heading recorded in `mindmap-collapsed`, plus frontmatter keys, a prose paragraph and an ordered list that the plugin carries along without showing.
+Copy [`examples/conference-talk.md`](examples/conference-talk.md) into your vault and open it in mindmap view. It covers: `##` / `###` sections forming the outer hierarchy, all seven priorities, all seven flag colours, progress across every stage, nested lists, wiki links, inline formatting, a parenthesized group that is *not* a mark, a collapsed heading recorded in `mindmap-collapsed`, plus frontmatter keys, a prose paragraph and an ordered list that the plugin carries along without showing. (Notes came later; neither the example file nor the screenshot above uses one yet.)
 
 ```markdown
 ---
@@ -170,6 +170,8 @@ The map shows a badge; hovering it pops the note up. Select the node and use the
 
 It is an ordinary Markdown blockquote — it renders in reading view, it is searchable, and it stays readable and editable without this plugin. A blockquote separated from the node line by other content is not a note. The root node does not support notes, for the same reason marks are refused there: a file without an H1 has nowhere to write them.
 
+As long as you leave a note alone, its lines are preserved byte for byte — `>note` with no space, `>  note` with two, a Tab indent, all survive untouched. Only two actions rewrite them: editing that note on the map, or dragging a node that carries one to a different depth (the indent has to follow the new level). A node with a note can still be deleted and dragged — a note is visible on the map, so it does not count as hidden carried content.
+
 ### Inline formatting
 
 After the marks group is stripped, the rest of a node's text is rendered as inline Markdown on the canvas:
@@ -233,7 +235,7 @@ Dragging a node changes its parent and its position among siblings.
 
 ## Toolbar
 
-Selecting a node brings up a floating toolbar next to it: bold / italic / strikethrough, the marks panel (priority, progress, flag — clicking an active item clears it), insert a `[[link]]`, and button equivalents for add child, add sibling, delete and collapse.
+Selecting a node brings up a floating toolbar next to it: bold / italic / strikethrough, the marks panel (priority, progress, flag — clicking an active item clears it), insert a `[[link]]`, edit the note (a multi-line box; `Cmd/Ctrl + Enter` saves, `Esc` cancels), and button equivalents for add child, add sibling, delete and collapse. The note button is disabled on the root node.
 
 ## Commands
 
@@ -277,17 +279,17 @@ GitHub Actions runs the type check, unit tests, purity check and build, and only
 
 ## Project status
 
-`0.1.1` is the version in the community plugin browser. `0.2.0` — the interface-language setting, which also raises the Obsidian requirement to 1.8.7 — is prepared in this repository but not released yet.
+`0.1.1` is the version in the community plugin browser. `0.2.0` — the interface-language setting, which also raises the Obsidian requirement to 1.8.7 — is prepared in this repository but not released yet; node notes have landed in the repository too, also unreleased.
 
-- The pure-function layer (parsing, serialization, marks, collapse state, tree operations, layout, camera, i18n) has 341 automated tests, including Markdown round-trip property tests.
-- The view layer (rendering, zoom/pan, keyboard, drag, toolbar) is verified **by hand** by design — being published does not change that. The checklist lives in [docs/MANUAL-VERIFICATION.md](docs/MANUAL-VERIFICATION.md); the "does it open, render and leave the file alone" section and all 16 🔴 high-risk items have passed, **the remaining sections have not been worked through yet**. Its appendix lists the defects found and fixed during development — that is where regressions are most likely.
+- The pure-function layer (parsing, serialization, marks, notes, collapse state, tree operations, layout, camera, i18n) has 376 automated tests, including Markdown round-trip property tests and adversarial-input tests.
+- The view layer (rendering, zoom/pan, keyboard, drag, toolbar, the note badge and its popovers) is verified **by hand** by design — being published does not change that. The checklist lives in [docs/MANUAL-VERIFICATION.md](docs/MANUAL-VERIFICATION.md); the "does it open, render and leave the file alone" section and all 16 🔴 high-risk items have passed, **the remaining sections have not been worked through yet**. Its appendix lists the defects found and fixed during development — that is where regressions are most likely.
 
 Because the plugin rewrites your notes, **verify write-back behaviour in a test vault or a git-tracked directory first**, and only point it at notes you care about once you are satisfied.
 
 ## Documentation
 
-- [AGENTS.md](AGENTS.md) — guide for AI agents working in this repo: architecture boundaries, ten hard constraints, the gates, and what the automated checks cannot see
-- [docs/MANUAL-VERIFICATION.md](docs/MANUAL-VERIFICATION.md) — 92-item manual verification checklist
+- [AGENTS.md](AGENTS.md) — guide for AI agents working in this repo: architecture boundaries, the hard constraints, the gates, and what the automated checks cannot see
+- [docs/MANUAL-VERIFICATION.md](docs/MANUAL-VERIFICATION.md) — manual verification checklist
 - [docs/superpowers/specs/](docs/superpowers/specs/) — design and decision record, including known limitations
 
 ## License
