@@ -72,6 +72,7 @@ const zh = {
   "badge.priority": "优先级 {priority}",
   "badge.progress": "进度 {progress}%",
   "badge.flag": "旗帜 {flag}",
+  "badge.note": "备注",
   "badge.collapsed": "已折叠 {count} 个子节点，点击展开",
 
   // 工具栏
@@ -88,6 +89,10 @@ const zh = {
   "toolbar.textStyle": "文字样式",
   "toolbar.marks": "标记",
   "toolbar.marks.blockedRoot": "根节点不能带标记：文件里没有一级标题时无处写回",
+  "toolbar.note": "备注",
+  "toolbar.note.blockedRoot": "根节点不能带备注：文件里没有一级标题时无处写回",
+  "note.placeholder": "写点备注……",
+  "note.hint": "Cmd/Ctrl + Enter 保存，Esc 取消",
   "toolbar.link": "插入链接",
   "toolbar.collapse": "折叠子树",
   "toolbar.collapse.blocked": "没有子节点可折叠",
@@ -139,6 +144,7 @@ const en: Record<MessageKey, string> = {
   "badge.priority": "Priority {priority}",
   "badge.progress": "Progress {progress}%",
   "badge.flag": "Flag {flag}",
+  "badge.note": "Note",
   "badge.collapsed": "{count} child nodes collapsed — click to expand",
 
   "toolbar.style.bold": "Bold",
@@ -155,6 +161,11 @@ const en: Record<MessageKey, string> = {
   "toolbar.marks": "Marks",
   "toolbar.marks.blockedRoot":
     "The root node cannot carry marks: with no level-1 heading in the file there is nowhere to write them",
+  "toolbar.note": "Note",
+  "toolbar.note.blockedRoot":
+    "The root node can't carry a note: there's nowhere to write it back when the file has no level-1 heading",
+  "note.placeholder": "Write a note…",
+  "note.hint": "Cmd/Ctrl + Enter to save, Esc to cancel",
   "toolbar.link": "Insert link",
   "toolbar.collapse": "Collapse subtree",
   "toolbar.collapse.blocked": "No child nodes to collapse",

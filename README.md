@@ -18,6 +18,7 @@ This one aims for:
 
 - **Editing directly on the map**, while the data remains a plain Markdown indented list — no proprietary format, no coordinates, no JSON
 - **Priority / progress / flag marks** written inline in the node text, readable and writable by both humans and AI
+- **Nodes can carry notes**, shown on hover; a note is stored as a plain Markdown blockquote under the node, readable without this plugin
 - **An explicit file-safety boundary**: only five byte-level normalizations are permitted (listed below), locked down by round-trip property tests
 
 Editing is not unique to this plugin — several others manage it too. The mark system is, at the time of writing, uncommon in this category.
@@ -153,6 +154,21 @@ Combine them freely: `- (p1 60% flag:blue) node text`. Order does not matter whe
 If the group contains anything unrecognised, the whole group is treated as ordinary text — `- (draft) some note` is not a mark.
 
 Marks work on heading nodes too, written after the `#`: `## (p2) Slides`. **Be aware that this leaks outside the plugin** in a way marks on list items do not — heading text is addressable in Obsidian, so `(p2)` will show up in the Outline panel, in search results and in the graph, and adding a mark to a heading breaks any existing `[[note#heading]]` reference to it. The root node's H1 is the one exception: marks are refused there, because a file without an H1 has nowhere to write them.
+
+### Notes
+
+A run of blockquote lines directly under a node line is that node's note:
+
+```markdown
+- Q3 goals
+  > Waiting on A to confirm the definition.
+  > See last quarter's retention breakdown.
+  - Acquisition
+```
+
+The map shows a badge; hovering it pops the note up. Select the node and use the toolbar's "Note" button to edit, Cmd/Ctrl + Enter to save.
+
+It is an ordinary Markdown blockquote — it renders in reading view, it is searchable, and it stays readable and editable without this plugin. A blockquote separated from the node line by other content is not a note. The root node does not support notes, for the same reason marks are refused there: a file without an H1 has nowhere to write them.
 
 ### Inline formatting
 

@@ -12,6 +12,7 @@ import {
   addSibling,
   canAddSibling,
   canMark,
+  canNote,
   canRemove,
   findNode,
   findParent,
@@ -20,6 +21,7 @@ import {
   navigate,
   removeNode,
   setMarks,
+  setNote,
   setText,
   toggleCollapse,
   toggleMark,
@@ -46,6 +48,8 @@ import {
 } from "./view/interaction";
 import type { LayoutResult } from "./view/layout";
 import { openMarksPanel } from "./view/marks-panel";
+import { openNotePopover } from "./view/note-popover";
+import { attachNoteTips } from "./view/note-tip";
 import { createLayers, renderMindmap, type RenderLayers } from "./view/renderer";
 import { createToolbar } from "./view/toolbar";
 
@@ -83,10 +87,17 @@ export class MindmapView extends TextFileView {
    *  document 上的 pointerdown 捕获监听会在浮层 DOM 被 clear(this.root) 销毁后
    *  继续存在，成为跨文件的监听器泄漏（见 clear()）。 */
   private inputPopover: { close(): void } | null = null;
-  /** marksPanel/inputPopover 当前绑定的节点 id，见 closeStaleOverlays()。 */
+  /** 备注编辑浮层。与 marksPanel/inputPopover 同款：它在 document 上挂着
+   *  pointerdown 捕获监听，DOM 被 clear(this.root) 销毁不会解绑，必须显式 close()。 */
+  private notePopover: { close(): void } | null = null;
+  /** marksPanel/inputPopover/notePopover 当前绑定的节点 id，见 closeStaleOverlays()。 */
   private overlayOwnerId: string | null = null;
   /** attachDrag() 返回的取消句柄，供 setViewData() 中止一次跨文档失效的拖拽。 */
   private dragControl: { cancel(): void } | null = null;
+  /** 备注悬浮气泡的句柄。与 dragControl 一样只挂一次监听（在 eventsAttached
+   *  块里），因此在重置状态时只 close() 不置 null——置 null 会让下一次 render()
+   *  以为还没挂过，但监听器实际上还在，形成堆叠（AGENTS.md 第 6 条）。 */
+  private noteTips: { close(): void } | null = null;
   /** parse() 抛异常时的错误信息；非 null 时 render() 走错误态分支，doc 为 null。 */
   private parseError: string | null = null;
 
@@ -279,7 +290,10 @@ export class MindmapView extends TextFileView {
     this.marksPanel = null;
     this.inputPopover?.close();
     this.inputPopover = null;
+    this.notePopover?.close();
+    this.notePopover = null;
     this.overlayOwnerId = null;
+    this.noteTips?.close();
     this.dragControl?.cancel();
   }
 
@@ -387,6 +401,10 @@ export class MindmapView extends TextFileView {
   }
 
   private render(): void {
+    // 气泡锚定在一个马上要被重建的角标上，锚点消失后 pointerout 不会再派发，
+    // 不主动关就会留一个孤儿浮层挂在画布上。气泡是悬浮触发的、不绑定选中，
+    // 所以不走 closeStaleOverlays（那条路径判的是 overlayOwnerId === selectedId）。
+    this.noteTips?.close();
     if (this.parseError !== null) {
       clear(this.root);
       this.toolbar = null;
@@ -416,6 +434,7 @@ export class MindmapView extends TextFileView {
         this.attachCameraEvents();
         this.attachInteractionLayer();
         this.attachDragLayer();
+        this.attachNoteTipLayer();
         this.eventsAttached = true;
       }
     }
@@ -468,6 +487,7 @@ export class MindmapView extends TextFileView {
       onWrap: (marker) => this.withSelection((id) => this.wrapText(id, marker)),
       onMarks: (anchor) => this.withSelection((id) => this.openMarks(id, anchor)),
       onLink: (anchor) => this.withSelection((id) => this.insertLink(id, anchor)),
+      onNote: (anchor) => this.withSelection((id) => this.openNote(id, anchor)),
     });
   }
 
@@ -534,6 +554,25 @@ export class MindmapView extends TextFileView {
     });
   }
 
+  private openNote(id: string, anchor: DOMRect): void {
+    if (this.doc === null) return;
+    const node = findNode(this.doc.root, id);
+    if (node === null) return;
+
+    this.notePopover?.close();
+    this.overlayOwnerId = id;
+    this.notePopover = openNotePopover(this.root, anchor, {
+      initial: node.note?.text ?? "",
+      onSubmit: (value) => {
+        if (this.doc === null) return;
+        this.applyDoc({ ...this.doc, root: setNote(this.doc.root, id, value) });
+      },
+      onClose: () => {
+        this.notePopover = null;
+      },
+    });
+  }
+
   /** 节点里渲染出的 wikilink 被点击时调用。node-el.ts 刻意不 import "obsidian"，
    *  不接触 `app`，跳转动作由这里注入。openLinkText 的第二个参数是「当前文件的
    *  路径」，用于解析相对链接与未指定 vault 时的兜底解析；`this.file` 在文档
@@ -556,12 +595,20 @@ export class MindmapView extends TextFileView {
    * 才会暴露出来的场景，Task 13 尚无法触发。
    */
   private closeStaleOverlays(): void {
-    if (this.marksPanel === null && this.inputPopover === null) return;
+    if (
+      this.marksPanel === null &&
+      this.inputPopover === null &&
+      this.notePopover === null
+    ) {
+      return;
+    }
     if (this.overlayOwnerId === this.selectedId && this.editingId === null) return;
     this.marksPanel?.close();
     this.inputPopover?.close();
+    this.notePopover?.close();
     this.marksPanel = null;
     this.inputPopover = null;
+    this.notePopover = null;
     this.overlayOwnerId = null;
   }
 
@@ -591,6 +638,7 @@ export class MindmapView extends TextFileView {
       canAddSibling: canAddSibling(this.doc.root, node.id),
       canRemove: canRemove(this.doc.root, node.id),
       canMark: canMark(this.doc.root, node.id),
+      canNote: canNote(this.doc.root, node.id),
       hasHiddenContent: hasHiddenContent(node),
     });
   }
@@ -623,6 +671,18 @@ export class MindmapView extends TextFileView {
       on: (type, handler) => this.registerDomEvent(this.root, type, handler),
       isEditing: () => this.editingId !== null,
       onDrop: (sourceId, target) => this.handleDrop(sourceId, target),
+    });
+  }
+
+  private attachNoteTipLayer(): void {
+    this.noteTips = attachNoteTips({
+      root: this.root,
+      on: (type, handler) => this.registerDomEvent(this.root, type, handler),
+      noteOf: (id) => {
+        if (this.doc === null) return null;
+        return findNode(this.doc.root, id)?.note?.text ?? null;
+      },
+      onOpenLink: (target, event) => this.openLink(target, event),
     });
   }
 

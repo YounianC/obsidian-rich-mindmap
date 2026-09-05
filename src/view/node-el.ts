@@ -1,7 +1,7 @@
 import { parseInline, type InlineToken } from "../model/inline";
 import { t } from "../i18n";
 import { progressStage } from "../model/marks";
-import { isHeading, type FlagColor, type Marks, type MindNode } from "../model/types";
+import { isHeading, type FlagColor, type MindNode } from "../model/types";
 import { el, svgEl, textNode } from "./dom";
 
 /** 点击一个 wikilink 时的回调，由 view.ts 提供并接到
@@ -83,11 +83,41 @@ export function buildFlagBadge(flag: FlagColor, parent: HTMLElement): HTMLElemen
   return wrap;
 }
 
-function buildMarks(marks: Marks, parent: HTMLElement): void {
+/**
+ * 备注角标。
+ *
+ * **刻意不设 `.title`**：其余角标用原生 title 做提示，而备注有自己的悬浮气泡
+ * （note-tip.ts），再挂一个原生 tooltip 会有两个浮层抢同一块位置。可访问名
+ * 只走 aria-label。
+ */
+export function buildNoteBadge(parent: HTMLElement): HTMLElement {
+  const wrap = el("span", "mm-mark mm-note-badge", parent);
+  wrap.setAttribute("aria-label", t("badge.note"));
+
+  const svg = svgEl("svg", "mm-note-svg", wrap);
+  svg.setAttribute("viewBox", "0 0 16 16");
+
+  const box = svgEl("rect", "mm-note-box", svg);
+  box.setAttribute("x", "2.5");
+  box.setAttribute("y", "2.5");
+  box.setAttribute("width", "11");
+  box.setAttribute("height", "11");
+  box.setAttribute("rx", "2");
+
+  const lines = svgEl("path", "mm-note-lines", svg);
+  lines.setAttribute("d", "M 5.5 6.5 H 10.5 M 5.5 9.5 H 9");
+
+  return wrap;
+}
+
+function buildMarks(node: MindNode, parent: HTMLElement): void {
+  const { marks } = node;
+  const hasNote = node.note !== undefined;
   if (
     marks.priority === undefined &&
     marks.progress === undefined &&
-    marks.flag === undefined
+    marks.flag === undefined &&
+    !hasNote
   ) {
     return;
   }
@@ -95,6 +125,7 @@ function buildMarks(marks: Marks, parent: HTMLElement): void {
   if (marks.priority !== undefined) buildPriorityBadge(marks.priority, wrap);
   if (marks.progress !== undefined) buildProgressBadge(marks.progress, wrap);
   if (marks.flag !== undefined) buildFlagBadge(marks.flag, wrap);
+  if (hasNote) buildNoteBadge(wrap);
 }
 
 /**
@@ -113,8 +144,10 @@ function stopPointerPropagation(event: PointerEvent): void {
  * 把 parseInline() 产出的 token 树 programmatic 地转成 DOM，绝不使用
  * `innerHTML`——节点文字来自用户的笔记文件，逐节点用 createElement/textContent
  * 拼装使注入在结构上不可能发生，而不是依赖转义。
+ *
+ * 备注气泡（note-tip.ts）复用这个函数渲染备注正文，同样不走 innerHTML。
  */
-function renderInline(
+export function renderInline(
   tokens: InlineToken[],
   parent: HTMLElement,
   onOpenLink?: OnOpenLink,
@@ -207,7 +240,7 @@ export function buildNodeEl(
   const element = el("div", classes.join(" "));
   element.dataset.id = node.id;
 
-  buildMarks(node.marks, element);
+  buildMarks(node, element);
 
   const text = el("span", "mm-text", element);
   if (node.text === "") {

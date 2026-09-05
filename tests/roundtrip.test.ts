@@ -82,6 +82,19 @@ const CORPUS: string[] = [
   "# t\n\n## A\n\n- a\n\t- b\n\n## B\n\n- c\n  - d\n",
   // 首块是平列表（推断不出单位）时，不应把兜底值当成全局单位去改写后面的块。
   "# t\n\n- a\n## B\n\n- b\n\t- c\n",
+  // 备注：节点行下方的连续引用行。前几条覆盖「原样重放」的各种书写形态，
+  // 后几条覆盖收编边界（非开头的引用块不收、根节点不收）。
+  "# t\n\n- a\n  > 备注\n",
+  "# t\n\n- a\n  > 第一行\n  > 第二行\n- b\n",
+  "# t\n\n- a\n  >备注\n",
+  "# t\n\n- a\n  >  备注\n",
+  "# t\n\n- a\n  > 上\n  >\n  > 下\n",
+  "# t\n\n- a\n\t> 备注\n\t- b\n",
+  "# t\n\n- a\n  > [!note] 提示\n  > 内容\n",
+  "# t\n\n- a\n  > 备注\n  普通续行\n- b\n",
+  "# t\n\n- a\n  普通续行\n  > 不是备注\n- b\n",
+  "# t\n\n## A\n> 标题的备注\n\n- a\n",
+  "# t\n\n> 根下面的引用块\n\n- a\n",
 ];
 
 describe("serialize(parse(md)) === md", () => {
@@ -90,6 +103,36 @@ describe("serialize(parse(md)) === md", () => {
       expect(serialize(parse(md, "我的导图.md"))).toBe(md);
     });
   }
+});
+
+describe("备注从续行里被摘进 node.note", () => {
+  it("列表项的备注", () => {
+    const doc = parse("# t\n\n- a\n  > 第一行\n  > 第二行\n  普通续行\n", "x.md");
+    const a = doc.root.children[0];
+    expect(a.note).toEqual({
+      text: "第一行\n第二行",
+      raw: ["  > 第一行", "  > 第二行"],
+    });
+    expect(a.continuation).toEqual(["  普通续行"]);
+  });
+
+  it("标题节点的备注", () => {
+    const doc = parse("# t\n\n## A\n> 标题的备注\n\n- a\n", "x.md");
+    const heading = doc.root.children[0];
+    expect(heading.note?.text).toBe("标题的备注");
+    expect(heading.continuation).toEqual([""]);
+  });
+
+  it("根节点不收编：引用块留在 continuation 里", () => {
+    const doc = parse("# t\n\n> 根下面的引用块\n\n- a\n", "x.md");
+    expect(doc.root.note).toBeUndefined();
+    expect(doc.root.continuation).toEqual(["", "> 根下面的引用块", ""]);
+  });
+
+  it("非开头的引用块不收编", () => {
+    const doc = parse("# t\n\n- a\n  普通续行\n  > 不是备注\n", "x.md");
+    expect(doc.root.children[0].note).toBeUndefined();
+  });
 });
 
 /** 仓库里的示例文件必须是规范形态：用户拷进 vault、用导图视图打开再切走，
@@ -114,6 +157,9 @@ function stripIds(node: MindNode): unknown {
     continuation: node.continuation,
     bullet: node.bullet,
     heading: node.heading,
+    // 只比 text 不比 raw：raw 的字节保真由上面的 CORPUS 逐字节断言覆盖，
+    // 而 fuzz 生成的备注 raw 恒为 null、往返回来必然带上真实行，比它会产生假反例。
+    note: node.note?.text ?? null,
     children: node.children.map(stripIds),
   };
 }
@@ -138,6 +184,15 @@ const marksArb = fc.record(
 /** 续行：留空，或恰好一行 2 空格缩进的续行文本（与写回缩进单位一致）。 */
 const continuationArb = fc.constantFrom([] as string[], ["  续行内容"]);
 
+/** 备注正文：留空（不带备注），或几种含空行、含标记字符的真实取值。 */
+const noteArb = fc.constantFrom(
+  undefined,
+  { text: "一行备注", raw: null },
+  { text: "第一行\n第二行", raw: null },
+  { text: "上\n\n下", raw: null },
+  { text: "带 **粗体** 与 [[链接]]", raw: null },
+);
+
 /** 三种合法的无序列表标记，逐节点独立取值——同一文件里混用是合法 Markdown。 */
 const bulletArb = fc.constantFrom(...(["-", "*", "+"] as const));
 
@@ -155,6 +210,7 @@ function itemNodeArb(depth: number): fc.Arbitrary<MindNode> {
     collapsed: fc.constant(false),
     continuation: continuationArb,
     bullet: bulletArb,
+    note: noteArb,
   });
 }
 
@@ -211,6 +267,7 @@ const headingNodeArb: fc.Arbitrary<MindNode> = fc
       collapsed: fc.constant(false),
       continuation: headingContinuationArb,
       bullet: fc.constant("-" as const),
+      note: noteArb,
       heading: fc.record({
         level: fc.constant(2),
         prefix: fc.constantFrom("## ", "##   "),

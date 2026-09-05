@@ -4,13 +4,17 @@ import { serialize } from "../src/model/serializer";
 import {
   addChild,
   addSibling,
+  canNote,
+  canRemove,
   findNode,
   findParent,
   freshId,
+  hasHiddenContent,
   moveNode,
   navigate,
   removeNode,
   setMarks,
+  setNote,
   setText,
   toggleCollapse,
   toggleMark,
@@ -378,5 +382,78 @@ describe("标题节点的编辑约束", () => {
     expect(next.children[1].text).toBe("改名");
     expect(isHeading(next.children[1])).toBe(true);
     expect(next.children[1].heading?.prefix).toBe("## ");
+  });
+});
+
+describe("setNote / canNote", () => {
+  it("给节点写入备注", () => {
+    const doc = parse("# t\n\n- a\n", "x.md");
+    const a = doc.root.children[0];
+    const next = setNote(doc.root, a.id, "第一行\n第二行");
+    expect(next.children[0].note).toEqual({ text: "第一行\n第二行", raw: null });
+  });
+
+  it("覆盖已有备注时 raw 置 null，写回按当前缩进重新生成", () => {
+    const doc = parse("# t\n\n- a\n  >旧备注\n", "x.md");
+    const a = doc.root.children[0];
+    expect(a.note?.raw).toEqual(["  >旧备注"]);
+    const next = setNote(doc.root, a.id, "新备注");
+    expect(next.children[0].note).toEqual({ text: "新备注", raw: null });
+    expect(serialize({ ...doc, root: next })).toBe("# t\n\n- a\n  > 新备注\n");
+  });
+
+  it("空白文本即删除备注", () => {
+    const doc = parse("# t\n\n- a\n  > 备注\n", "x.md");
+    const a = doc.root.children[0];
+    const next = setNote(doc.root, a.id, "   \n  ");
+    expect(next.children[0].note).toBeUndefined();
+    expect(serialize({ ...doc, root: next })).toBe("# t\n\n- a\n");
+  });
+
+  it("对根 id 是 no-op", () => {
+    const doc = parse("# t\n\n- a\n", "x.md");
+    expect(setNote(doc.root, doc.root.id, "备注")).toBe(doc.root);
+  });
+
+  it("canNote：根不可，其余可", () => {
+    const doc = parse("# t\n\n- a\n", "x.md");
+    expect(canNote(doc.root, doc.root.id)).toBe(false);
+    expect(canNote(doc.root, doc.root.children[0].id)).toBe(true);
+    expect(canNote(doc.root, "不存在的 id")).toBe(false);
+  });
+});
+
+describe("备注不让节点变成不可删/不可拖", () => {
+  it("只带备注的节点 hasHiddenContent 为 false", () => {
+    const doc = parse("# t\n\n- a\n  > 备注\n", "x.md");
+    const a = doc.root.children[0];
+    expect(hasHiddenContent(a)).toBe(false);
+    expect(canRemove(doc.root, a.id)).toBe(true);
+  });
+});
+
+describe("moveNode 使备注的 raw 失效", () => {
+  it("移动子树内所有节点的 raw 都置 null", () => {
+    const doc = parse("# t\n\n- a\n  > A 的备注\n  - b\n    > B 的备注\n- c\n", "x.md");
+    const a = doc.root.children[0];
+    const c = doc.root.children[1];
+
+    const next = moveNode(doc.root, a.id, c.id, 0);
+    const movedA = next.children[0].children[0];
+    expect(movedA.id).toBe(a.id);
+    expect(movedA.note).toEqual({ text: "A 的备注", raw: null });
+    expect(movedA.children[0].note).toEqual({ text: "B 的备注", raw: null });
+    // 深度变了，写回时按新缩进重新生成。
+    expect(serialize({ ...doc, root: next })).toBe(
+      "# t\n\n- c\n  - a\n    > A 的备注\n    - b\n      > B 的备注\n",
+    );
+  });
+
+  it("没被移动的节点保留原始 raw", () => {
+    const doc = parse("# t\n\n- a\n  > A 的备注\n- c\n  > C 的备注\n", "x.md");
+    const a = doc.root.children[0];
+    const c = doc.root.children[1];
+    const next = moveNode(doc.root, a.id, c.id, 0);
+    expect(next.children[0].note?.raw).toEqual(["  > C 的备注"]);
   });
 });

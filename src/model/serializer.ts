@@ -1,4 +1,5 @@
 import { formatMarks } from "./marks";
+import { renderNote } from "./note";
 import { isHeading, type MindDoc, type MindNode } from "./types";
 
 /** 组合标记与文本，避免空文本时出现尾随空格。 */
@@ -7,6 +8,19 @@ function composeLine(node: MindNode): string {
   if (marks === "") return node.text;
   if (node.text === "") return marks;
   return `${marks} ${node.text}`;
+}
+
+/**
+ * 写出节点的备注行。`raw` 非 null 时逐字重放（保证往返字节相等）；用户编辑过
+ * 备注（`raw === null`）时才按 `indent` 重新生成——缩进只有序列化期知道，
+ * 这里是唯一该做这件事的地方。
+ */
+function serializeNote(node: MindNode, indent: string): string {
+  if (node.note === undefined) return "";
+  const lines = node.note.raw ?? renderNote(node.note.text, indent);
+  let out = "";
+  for (const line of lines) out += `${line}\n`;
+  return out;
 }
 
 /**
@@ -28,6 +42,8 @@ function serializeNodes(
       // 层级归属规则与文件字节必须解耦，否则调整归属就会改写用户的文件。
       // 标记写在 `#` 之后、标题文字之前，与列表项同一套语法。
       out += `${node.heading.prefix}${composeLine(node)}${node.heading.suffix}\n`;
+      // 标题行顶格，它的备注也顶格。
+      out += serializeNote(node, "");
       for (const line of node.continuation) out += `${line}\n`;
       out += serializeNodes(node.children, 0, node.heading.indentUnit ?? indentUnit);
       continue;
@@ -36,6 +52,8 @@ function serializeNodes(
     // 列表标记，把它们改写成 `-` 会让一个只是被导图视图打开过的文件产生
     // 全量 diff（见 README「写回归一化」一节的承诺）。
     out += `${indentUnit.repeat(listDepth)}${node.bullet} ${composeLine(node)}\n`;
+    // 比节点自己深一层，备注才落在这个列表项内部而不是掉出列表。
+    out += serializeNote(node, indentUnit.repeat(listDepth + 1));
     for (const line of node.continuation) out += `${line}\n`;
     out += serializeNodes(node.children, listDepth + 1, indentUnit);
   }
@@ -59,6 +77,8 @@ export function serialize(doc: MindDoc): string {
     // 根节点的 marks 有意不写：hasHeading 为假时根本没有 H1 行可写，标记会
     // 静默丢失。tree-ops.setMarks / toggleMark 对根 id 是 no-op 来保证这一点，
     // 所以这里直接写 root.text，不走 composeLine。
+    // 根节点没有备注：parse 不对根做 splitNote，setNote 对根 id 是 no-op，
+    // 所以这里不需要 serializeNote。
     out += `${doc.root.heading.prefix}${doc.root.text}${doc.root.heading.suffix}\n`;
     for (const line of doc.root.continuation) out += `${line}\n`;
   }

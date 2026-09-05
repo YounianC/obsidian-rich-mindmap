@@ -32,6 +32,23 @@ export interface HeadingForm {
   indentUnit: string | null;
 }
 
+/**
+ * 节点备注：紧跟节点行的连续引用行（`> …`），解析期由 note.ts 的 splitNote
+ * 从 `continuation` 里摘出来。
+ *
+ * `raw` 是这个设计的承重墙。用户写的可能是 `>备注`（无空格）、`>  备注`
+ * （两个空格）、tab 缩进。只存解码后的 `text`、写回时统一渲染成 `> `，就等于
+ * 给项目加了第六条写回归一化——违反 AGENTS.md 第 2 条。所以解析期把原始行
+ * 整条留住，**只有用户真正改了备注才置 `raw = null`**，那时才由 serialize
+ * 按节点当前的缩进重新生成。
+ */
+export interface Note {
+  /** 去掉缩进与 `>` 前缀后的备注正文，行间以 \n 连接 */
+  text: string;
+  /** 来自文件的原始行（含缩进与前缀），逐字重放；用户编辑后为 null */
+  raw: string[] | null;
+}
+
 export interface MindNode {
   /** 会话内稳定的唯一 id，由 parser/tree-ops 生成，不写入文件 */
   id: string;
@@ -46,6 +63,9 @@ export interface MindNode {
    *  根节点没有列表行，它的取值只作为「新建根的直接子节点时用哪个字符」的来源，
    *  由 parser 取自文件里第一个列表项（没有列表项时为 `-`）。 */
   bullet: Bullet;
+  /** 存在即为「这个节点带备注」。根节点恒无此字段：parser 不对根做 splitNote，
+   *  tree-ops.setNote 对根 id 是 no-op（理由与 setMarks 相同）。 */
+  note?: Note;
   /** 存在即为标题节点，不存在即为列表项。
    *
    *  根节点**恒有**此字段，包括文件没有 H1、根文字取自文件名的情形（那时由

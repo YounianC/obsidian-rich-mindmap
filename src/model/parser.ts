@@ -1,4 +1,5 @@
 import { parseMarks } from "./marks";
+import { splitNote } from "./note";
 import type { Bullet, MindDoc, MindNode } from "./types";
 
 /** 第 2 组捕获结束围栏 `---` 之后的尾随空白，写回时原样重放。 */
@@ -271,13 +272,14 @@ function buildTree(entries: readonly ScanEntry[], root: MindNode): void {
       // 都会带上 `(p1)`，且给标题打标会让已有的标题引用失效。这是已知并接受的
       // 取舍（见 README「行内标记」一节）。根节点例外，见 tree-ops.setMarks。
       const headingMarks = parseMarks(entry.text);
+      const headingNote = splitNote(entry.continuation);
       const node: MindNode = {
         id: `n${nextId++}`,
         text: headingMarks.rest,
         marks: headingMarks.marks,
         children: [],
         collapsed: false,
-        continuation: entry.continuation,
+        continuation: headingNote.rest,
         bullet: "-",
         heading: {
           level: entry.level,
@@ -286,6 +288,9 @@ function buildTree(entries: readonly ScanEntry[], root: MindNode): void {
           indentUnit: null,
         },
       };
+      // 只在有备注时挂字段：`note: null` 与「没有备注」是两种状态，让不带备注的
+      // 节点根本不出现这个键，结构比较与 JSON 快照都更干净。
+      if (headingNote.note !== null) node.note = headingNote.note;
       parent.children.push(node);
       headingStack.push({ node, level: entry.level });
       listStack = [];
@@ -310,6 +315,7 @@ function buildTree(entries: readonly ScanEntry[], root: MindNode): void {
     const raw = Math.round((entry.depthWidth - base) / unit) + 1;
     const depth = Math.max(1, Math.min(raw, listStack.length));
     const { marks, rest } = parseMarks(entry.text);
+    const itemNote = splitNote(entry.continuation);
 
     const node: MindNode = {
       id: `n${nextId++}`,
@@ -317,9 +323,10 @@ function buildTree(entries: readonly ScanEntry[], root: MindNode): void {
       marks,
       children: [],
       collapsed: false,
-      continuation: entry.continuation,
+      continuation: itemNote.rest,
       bullet: entry.bullet,
     };
+    if (itemNote.note !== null) node.note = itemNote.note;
 
     listStack[depth - 1].children.push(node);
     listStack.length = depth;
@@ -374,6 +381,9 @@ export function parse(md: string, fileName: string): MindDoc {
     marks: {},
     children: [],
     collapsed: false,
+    // 根节点不做 splitNote：根不支持备注（tree-ops.setNote 对根 id 是 no-op，
+    // 理由与 setMarks 相同），若解析期仍把根下面的引用块收成备注，导图上会出现
+    // 一个点不动的角标。与「parse 不对根的 H1 调 parseMarks」逐字对称。
     continuation: hasHeading ? rootEntry.continuation : [],
     // 根节点自身没有列表行；这里存的是「文件里第一个列表项用的标记字符」，
     // 供 tree-ops 给根的新直接子节点挑一个和现有兄弟一致的标记（见 makeNode）。

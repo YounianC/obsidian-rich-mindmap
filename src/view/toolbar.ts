@@ -10,6 +10,7 @@ export interface ToolbarHandlers {
   onWrap(marker: "**" | "*" | "~~"): void;
   onMarks(anchor: DOMRect): void;
   onLink(anchor: DOMRect): void;
+  onNote(anchor: DOMRect): void;
   onToggleCollapse(): void;
 }
 
@@ -25,6 +26,7 @@ export interface NodeCapabilities {
   canAddSibling: boolean;
   canRemove: boolean;
   canMark: boolean;
+  canNote: boolean;
   /** 该节点是否携带图上不可见的正文（标题下的散文、有序列表、代码块……）。
    *  它是 `canRemove` 为 false 的两个原因之一（另一个是「这是根节点」），
    *  禁用提示需要据此给出具体说明——否则同级节点一个能删一个不能，用户
@@ -157,6 +159,16 @@ export function createToolbar(
       icon: "link",
       label: t("toolbar.link"),
       action: (button) => handlers.onLink(button.getBoundingClientRect()),
+    },
+    {
+      icon: "sticky-note",
+      label: t("toolbar.note"),
+      action: (button) => handlers.onNote(button.getBoundingClientRect()),
+      // 根节点不能带备注：parse 不对根做 splitNote、setNote 对根 id 是 no-op
+      // （见 model/tree-ops.ts）。不在这里禁用的话，选中根节点打开浮层后写什么
+      // 都会静默失败。判断只从 tree-ops.canNote 来，视图层不重新推导。
+      disabled: (caps) => !caps.canNote,
+      disabledLabel: () => t("toolbar.note.blockedRoot"),
     },
     {
       icon: "fold-vertical",

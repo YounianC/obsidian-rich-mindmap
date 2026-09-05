@@ -82,6 +82,11 @@ export function canMark(root: MindNode, id: string): boolean {
   return id !== root.id && findNode(root, id) !== null;
 }
 
+/** 能否加备注：根节点不能，见 setNote 的说明。 */
+export function canNote(root: MindNode, id: string): boolean {
+  return id !== root.id && findNode(root, id) !== null;
+}
+
 /** 对树做一次映射式重建；`fn` 返回 null 表示该节点不变。 */
 function mapTree(
   node: MindNode,
@@ -224,10 +229,47 @@ export function toggleMark(root: MindNode, id: string, patch: Marks): MindNode {
   });
 }
 
+/**
+ * 写入或清除节点备注。文本去空白后为空即删除备注。
+ *
+ * 根节点不带备注，理由与 setMarks 相同：文件没有 H1 行时（`MindDoc.hasHeading`
+ * 为假）根本没有可写的位置，`serialize` 会跳过整行，备注静默丢失。所以在变更
+ * 源头拒绝，`parse` 也对称地不对根做 splitNote。
+ *
+ * `raw` 恒为 null：用户改过的备注不能再重放旧字节，交给 serialize 按节点当前的
+ * 缩进重新生成（见 serializer 的 serializeNote）。
+ */
+export function setNote(root: MindNode, id: string, text: string): MindNode {
+  if (id === root.id) return root;
+  return mapTree(root, (node) => {
+    if (node.id !== id) return null;
+    if (text.trim() === "") {
+      const next = { ...node };
+      delete next.note;
+      return next;
+    }
+    return { ...node, note: { text, raw: null } };
+  });
+}
+
 function isDescendant(root: MindNode, ancestorId: string, id: string): boolean {
   const ancestor = findNode(root, ancestorId);
   if (ancestor === null) return false;
   return findNode(ancestor, id) !== null && ancestorId !== id;
+}
+
+/**
+ * 深拷贝一棵子树并让其中所有备注的 `raw` 失效。
+ *
+ * 移动之后节点深度变了，旧缩进不再对；不置 null 的话备注行会留在原来的缩进
+ * 列上——仍然解析回同一个节点（续行 sink 收一切非节点行），但在 Obsidian 自己的
+ * 阅读视图里会掉出列表外。这是显式编辑触发的字节变化，不受「只允许五条写回
+ * 归一化」约束（那五条约束的是「打开再切走」的空操作）。
+ */
+function clearNoteRaw(node: MindNode): MindNode {
+  const next: MindNode = { ...node, children: node.children.map(clearNoteRaw) };
+  if (next.note !== undefined) next.note = { ...next.note, raw: null };
+  return next;
 }
 
 export function moveNode(
@@ -257,7 +299,7 @@ export function moveNode(
     // 上界是第一个标题子节点而不是 children.length，维护 list-before-heading
     // 不变量：落在标题之后的列表项在重新解析时会跑进那个标题名下。
     const limit = firstHeadingIndex(children);
-    children.splice(Math.max(0, Math.min(index, limit)), 0, moving);
+    children.splice(Math.max(0, Math.min(index, limit)), 0, clearNoteRaw(moving));
     return { ...node, collapsed: false, children };
   });
 }
