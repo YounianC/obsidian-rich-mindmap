@@ -86,13 +86,16 @@ export function buildFlagBadge(flag: FlagColor, parent: HTMLElement): HTMLElemen
 /**
  * 备注角标。
  *
- * **刻意不设 `.title`**：其余角标用原生 title 做提示，而备注有自己的悬浮气泡
- * （note-tip.ts），再挂一个原生 tooltip 会有两个浮层抢同一块位置。可访问名
- * 只走 aria-label。
+ * **既不设 `.title` 也不设 `aria-label`。** 其余角标用原生 title 做提示，而
+ * 备注有自己的悬浮气泡（note-tip.ts），再挂一个 tooltip 就是两个浮层抢同一块
+ * 位置——实测 Obsidian 会**为任何带 `aria-label` 的元素弹出自己的深色 tooltip**，
+ * 它正好盖在备注气泡的左上角。可访问名改由一个视觉隐藏的文字节点提供：内容
+ * 来源的可访问名不触发那套 tooltip，读屏用户拿到的信息不变。
  */
 export function buildNoteBadge(parent: HTMLElement): HTMLElement {
   const wrap = el("span", "mm-mark mm-note-badge", parent);
-  wrap.setAttribute("aria-label", t("badge.note"));
+  const label = el("span", "mm-sr-only", wrap);
+  label.textContent = t("badge.note");
 
   const svg = svgEl("svg", "mm-note-svg", wrap);
   svg.setAttribute("viewBox", "0 0 16 16");

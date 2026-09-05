@@ -235,7 +235,21 @@
 }
 
 .mm-note-badge {
+  position: relative;
   color: var(--text-muted);
+}
+
+/* 只给读屏用的文字。备注角标不能用 aria-label 提供可访问名——Obsidian 会为
+   带 aria-label 的元素弹自己的 tooltip，盖在备注气泡上（见 node-el.ts）。 */
+.mm-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  clip-path: inset(50%);
 }
 
 .mm-note-svg {
