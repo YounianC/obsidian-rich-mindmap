@@ -175,6 +175,8 @@ npm run check:i18n    # 界面文字未写死中文
 
 同一条 workflow 还会用 `actions/attest-build-provenance` 为这三个文件签发构建来源证明（需要 `id-token: write` 与 `attestations: write` 两个权限），用户可以用 `gh attestation verify main.js --repo YounianC/obsidian-rich-mindmap` 核实产物确实由本仓库构建。Obsidian 官方的插件体检会检查这一项。
 
+**release notes 取自带注释 tag 的说明**（`git tag -a`），所以 tag 消息就是要发给用户看的文案。workflow 里有一步 `git fetch --force origin refs/tags/<tag>:refs/tags/<tag>` 是必需的：`actions/checkout` 只把 tag 取成指向 commit 的轻量 ref，不补这一步 `git cat-file -t` 永远返回 `commit`，notes 会静默退化成自动生成的 changelog 链接（0.2.0 / 0.2.1 就是这么发出去的）。
+
 **tag 名必须与 `manifest.json` 的 `version` 完全一致，且不带 `v` 前缀。** Obsidian 会去 `releases/download/<version>/manifest.json` 取文件，带前缀会 404。workflow 里有一步专门校验这个，同时校验 `versions.json` 有对应项、且其值与 `minAppVersion` 一致——不一致是社区市场提交被退回的常见原因。
 
 发新版时要同步改三处：`manifest.json` 的 `version`、`versions.json` 加一项、然后打 tag。

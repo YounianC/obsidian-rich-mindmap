@@ -101,6 +101,11 @@ jobs:
         run: |
           set -e
           TAG="${GITHUB_REF_NAME}"
+          # actions/checkout 只把 tag 取成指向 commit 的轻量 ref，即使远端是带注释的
+          # tag，`git cat-file -t` 也会返回 commit —— 下面那个判断因此永远为假，
+          # release notes 一直退化成自动生成的 changelog 链接。显式把真正的 tag 对象
+          # 拉下来覆盖掉那个假 ref；远端本来就是轻量 tag 时这步是无害的空操作。
+          git fetch --force origin "refs/tags/${TAG}:refs/tags/${TAG}"
           # 带注释的 tag 用它自己的说明当 release notes；轻量 tag 则自动生成。
           if [ "$(git cat-file -t "$TAG")" = "tag" ]; then
             NOTES_FLAG="--notes-from-tag"
