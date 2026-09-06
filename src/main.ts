@@ -22,13 +22,12 @@ export default class MindmapPlugin extends Plugin {
   override async onload(): Promise<void> {
     await this.loadSettings();
 
-    // 语言必须在**任何**读 t() 的东西之前定下来，所以它紧跟 loadSettings()：
-    // - 命令名在 addCommand 时求值；
-    // - 设置项的 name/desc/下拉选项在 getSettingDefinitions() 里求值，而声明式
-    //   设置的存在意义就是「能被设置面板搜索索引到」，Obsidian 会在
-    //   addSettingTab 注册时就调一次去建索引。曾因为 setLocale 排在
-    //   addSettingTab 之后，导致设置页出现「语言那一行是中文、其余行是英文」
-    //   的混排——索引拿到的是默认中文，渲染时才拿到正确语言。
+    // 语言必须在**任何**读 t() 的东西之前定下来，所以它紧跟 loadSettings()。
+    // 最硬的那条是命令名：addCommand 时就求值，之后改语言只能靠 applyLanguage()
+    // 整个重注册一遍。设置页现在走 display()（用户点开时才求值），对顺序不敏感，
+    // 但曾经用声明式 getSettingDefinitions() 时是敏感的——addSettingTab 会立刻
+    // 调一次去建搜索索引，setLocale 排在它之后就出现过「语言那一行是中文、其余
+    // 行是英文」的混排。顺序保持现状，别再把 setLocale 往后挪。
     setLocale(resolveLocale(this.settings.language, getLanguage()));
 
     this.registerView(

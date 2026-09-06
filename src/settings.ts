@@ -3,7 +3,6 @@ import {
   PluginSettingTab,
   Setting,
   type App,
-  type SettingDefinitionItem,
 } from "obsidian";
 import { t, type LanguageSetting } from "./i18n";
 import type MindmapPlugin from "./main";
@@ -36,50 +35,25 @@ export class MindmapSettingTab extends PluginSettingTab {
   }
 
   /**
-   * Obsidian ≥ 1.13 的声明式设置：能被设置面板的搜索索引到，读写由基类直接落到
-   * `plugin.settings` 并持久化。定义非空时基类不会再调用下面的 display()。
-   */
-  override getSettingDefinitions(): SettingDefinitionItem[] {
-    return [
-      {
-        name: t("settings.language.name"),
-        desc: t("settings.language.desc"),
-        control: {
-          type: "dropdown",
-          key: "language",
-          defaultValue: DEFAULT_SETTINGS.language,
-          options: languageOptions(),
-        },
-      },
-      {
-        name: t("settings.autoOpen.name"),
-        desc: t("settings.autoOpen.desc"),
-        control: {
-          type: "toggle",
-          key: "autoOpen",
-          defaultValue: DEFAULT_SETTINGS.autoOpen,
-        },
-      },
-    ];
-  }
-
-  /**
-   * 声明式设置的写入入口。`SettingControlBase` 没有 `onChange`，这里是唯一能
-   * 观察到「用户改了哪个设置」的地方（基类注释：Mutates and persists
-   * `this.plugin.settings`）。
+   * 设置页刻意只有 `display()` 这一条路径。
    *
-   * 先让基类落盘，再对语言做两件事：`applyLanguage()` 重设语言、重注册命令、
-   * 让各导图视图重建图层；`update()` 重渲染设置页自身，否则页面上的标签还
-   * 留在旧语言。
+   * Obsidian 1.13 引入了声明式设置（`getSettingDefinitions()`），好处是设置项能
+   * 被设置面板的搜索索引到，`display()` 也随之标记为 deprecated。但它没有
+   * `onChange`：唯一能观察到「用户改了哪个设置」的钩子是基类的
+   * `setControlValue()`，刷新页面自身文案还要调 `update()`——两个都是
+   * `@since 1.13.0`。而本插件的 `minAppVersion` 是 1.8.7，官方的
+   * `obsidianmd/no-unsupported-api` 体检把这两处调用报成 **Error**（不是警告），
+   * 即使它们只在 1.13+ 上才可能被基类调到——那条规则是静态扫描的。
+   *
+   * 两条出路只能选一条：抬 `minAppVersion` 到 1.13.0，或者放弃声明式。选了后者，
+   * 代价只是两个设置项进不了搜索索引；抬版本的代价是 1.13 以下的用户直接装不了。
+   * `obsidian.d.ts` 对 `display()` 的原话也是「Only implement display() as a
+   * fallback for plugins that need to support Obsidian versions older than
+   * 1.13.0」——所以那条 deprecated 提示是预期内的，不是要修的东西。
+   *
+   * **不要「顺手」把声明式加回来**，那会让官方体检重新报 Error。真要加，得连
+   * `minAppVersion` 与 `versions.json` 一起抬到 1.13.0，那是产品决策不是重构。
    */
-  override async setControlValue(key: string, value: unknown): Promise<void> {
-    await super.setControlValue(key, value);
-    if (key !== "language") return;
-    this.plugin.applyLanguage();
-    this.update();
-  }
-
-  /** 1.13 之前的版本没有声明式 API，基类回退到这里手工渲染；内容要和上面保持一致。 */
   override display(): void {
     this.containerEl.empty();
 
@@ -98,6 +72,7 @@ export class MindmapSettingTab extends PluginSettingTab {
               value === "zh" || value === "en" ? value : "auto";
             await this.plugin.saveSettings();
             this.plugin.applyLanguage();
+            // t() 自己不通知任何人，已渲染的标签要靠这次重画才会换语言。
             this.display();
           });
       });
