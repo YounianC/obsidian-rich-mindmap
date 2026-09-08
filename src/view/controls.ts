@@ -6,6 +6,24 @@ export interface ControlsHandlers {
   onZoomIn(): void;
   onZoomOut(): void;
   onFit(): void;
+  onActualSize(): void;
+}
+
+function controlButton(
+  host: HTMLElement,
+  cls: string,
+  label: string,
+  onClick: () => void,
+): HTMLButtonElement {
+  const button = el("button", cls, host);
+  button.type = "button";
+  button.setAttribute("aria-label", label);
+  button.title = label;
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    onClick();
+  });
+  return button;
 }
 
 function iconButton(
@@ -14,15 +32,7 @@ function iconButton(
   label: string,
   onClick: () => void,
 ): void {
-  const button = el("button", "mm-control-btn", host);
-  button.type = "button";
-  button.setAttribute("aria-label", label);
-  button.title = label;
-  setIcon(button, icon);
-  button.addEventListener("click", (event) => {
-    event.preventDefault();
-    onClick();
-  });
+  setIcon(controlButton(host, "mm-control-btn", label, onClick), icon);
 }
 
 /** 画布右上角的缩放控件。 */
@@ -38,7 +48,13 @@ export function createControls(
   iconButton(bar, "maximize", t("controls.fit"), () => handlers.onFit());
   iconButton(bar, "minus", t("controls.zoomOut"), () => handlers.onZoomOut());
 
-  const readout = el("span", "mm-control-scale", bar);
+  // 百分比读数**本身**就是「恢复 100%」按钮，不额外加一个图标按钮：lucide 里
+  // 没有能表达「原始大小」的图标，而读数就在用户找当前倍率时的视线落点上。
+  // 用真正的 <button>（而不是给 span 挂 click）才能拿到键盘可达性、焦点环，
+  // 以及 .mm-control-btn 那套 hover 底色——否则「这里能点」没有任何可见线索。
+  const readout = controlButton(bar, "mm-control-scale", t("controls.actualSize"), () =>
+    handlers.onActualSize(),
+  );
   readout.textContent = "100%";
 
   iconButton(bar, "plus", t("controls.zoomIn"), () => handlers.onZoomIn());

@@ -228,10 +228,16 @@ If a file cannot be parsed as a mind map, the canvas shows an error card with a 
 | Arrow keys | Move selection through the tree |
 | `Space` | Collapse / expand |
 | `Esc` | Cancel editing / clear selection |
-| `Cmd/Ctrl` + wheel | Zoom |
+| `Cmd/Ctrl` + wheel | Zoom (see **Zoom** below) |
 | Drag empty space | Pan |
 
 Dragging a node changes its parent and its position among siblings.
+
+## Zoom
+
+The controls in the top-right corner of the canvas are **Fit to window**, **Zoom out**, the current zoom level, and **Zoom in**. The percentage in the middle is itself a button: click it to **reset to 100% (actual size)**. It keeps the centre of the viewport fixed, so whatever you were reading grows in place instead of being pulled back to the root node (to go back to the root, hit **Fit to window** first, then the percentage). The range is 20%–300%.
+
+Fitting a large mindmap to the window makes it tiny — a few hundred nodes typically land around 30%, which is barely readable. If you would rather open at actual size, set Settings → Rich Mindmap → **Zoom when opening a mindmap** to **100% (actual size)**: the viewport starts at the root node on the left, at 100%. The default is still **Fit to window**. The setting only affects views opened from that point on, not ones already open.
 
 ## Toolbar
 

@@ -375,12 +375,30 @@
   background: var(--background-modifier-hover);
 }
 
+/* 百分比读数同时是「恢复 100%」按钮（controls.ts 里它是一个真正的 <button>）。
+ * 需要自己重置按钮外观：Obsidian 的基础样式给 button 配了背景、边框和阴影，
+ * 不清掉的话读数会变成一颗突兀的实心药丸。hover 反馈与 .mm-control-btn 保持
+ * 一致，这是「这里能点」的唯一可见线索。
+ * tabular-nums + min-width：倍率在 20%–300% 之间跳动时读数宽度不变，否则整条
+ * 控件栏会随缩放左右抽动。 */
 .mm-control-scale {
   min-width: 44px;
+  padding: 4px 2px;
   color: var(--text-muted);
+  font-family: inherit;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   text-align: center;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.mm-control-scale:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
 }
 
 /* ---------- 选择与编辑 ---------- */

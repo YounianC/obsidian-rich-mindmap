@@ -49,6 +49,11 @@ const zh = {
   // 语言名按惯例始终用它自己的语言书写，两张表里的值相同
   "settings.language.zh": "简体中文",
   "settings.language.en": "English",
+  "settings.defaultZoom.name": "打开导图时的缩放",
+  "settings.defaultZoom.desc":
+    "内容较多时「适应窗口」会缩到很小，选 100% 可以直接从根节点开始按原始大小阅读。只影响之后新打开的视图。",
+  "settings.defaultZoom.fit": "适应窗口",
+  "settings.defaultZoom.actual": "100%（原始大小）",
 
   // 视图
   "view.switchToSource": "切换到源码模式",
@@ -62,6 +67,8 @@ const zh = {
   "controls.fit": "适应窗口",
   "controls.zoomOut": "缩小",
   "controls.zoomIn": "放大",
+  // 百分比读数本身就是这个按钮，文案同时充当它的 tooltip 与无障碍名
+  "controls.actualSize": "恢复 100%（原始大小）",
 
   // 标记面板的分区标题
   "marks.priority": "优先级",
@@ -125,6 +132,11 @@ const en: Record<MessageKey, string> = {
   "settings.language.auto": "Follow Obsidian",
   "settings.language.zh": "简体中文",
   "settings.language.en": "English",
+  "settings.defaultZoom.name": "Zoom when opening a mindmap",
+  "settings.defaultZoom.desc":
+    "Fitting a large mindmap to the window makes it tiny. Pick 100% to start reading from the root node at actual size. Only affects views opened from now on.",
+  "settings.defaultZoom.fit": "Fit to window",
+  "settings.defaultZoom.actual": "100% (actual size)",
 
   "view.switchToSource": "Switch to source mode",
   "view.displayTitle": "Mindmap",
@@ -136,6 +148,7 @@ const en: Record<MessageKey, string> = {
   "controls.fit": "Fit to window",
   "controls.zoomOut": "Zoom out",
   "controls.zoomIn": "Zoom in",
+  "controls.actualSize": "Reset to 100% (actual size)",
 
   "marks.priority": "Priority",
   "marks.progress": "Progress",

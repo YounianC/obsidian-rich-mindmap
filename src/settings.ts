@@ -7,16 +7,22 @@ import {
 import { t, type LanguageSetting } from "./i18n";
 import type MindmapPlugin from "./main";
 
+/** 打开一张导图时的初始缩放。`"fit"` 是历史行为，也是默认值。 */
+export type DefaultZoom = "fit" | "actual";
+
 export interface MindmapSettings {
   /** 带 `mindmap: true` 的文件是否自动用思维导图视图打开 */
   autoOpen: boolean;
   /** 界面语言；"auto" 表示跟随 Obsidian 的语言设置 */
   language: LanguageSetting;
+  /** 打开导图时是「适应窗口」还是 100% 原始大小 */
+  defaultZoom: DefaultZoom;
 }
 
 export const DEFAULT_SETTINGS: MindmapSettings = {
   autoOpen: true,
   language: "auto",
+  defaultZoom: "fit",
 };
 
 /** 语言下拉的三个选项。「跟随 Obsidian」括注当前检测到的语言码，
@@ -74,6 +80,21 @@ export class MindmapSettingTab extends PluginSettingTab {
             this.plugin.applyLanguage();
             // t() 自己不通知任何人，已渲染的标签要靠这次重画才会换语言。
             this.display();
+          });
+      });
+
+    new Setting(this.containerEl)
+      .setName(t("settings.defaultZoom.name"))
+      .setDesc(t("settings.defaultZoom.desc"))
+      .addDropdown((dropdown) => {
+        dropdown.addOption("fit", t("settings.defaultZoom.fit"));
+        dropdown.addOption("actual", t("settings.defaultZoom.actual"));
+        dropdown
+          .setValue(this.plugin.settings.defaultZoom)
+          .onChange(async (value) => {
+            // addDropdown 的回调给的是 string，收窄到 DefaultZoom
+            this.plugin.settings.defaultZoom = value === "actual" ? "actual" : "fit";
+            await this.plugin.saveSettings();
           });
       });
 

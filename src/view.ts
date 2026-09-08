@@ -29,12 +29,17 @@ import {
 import { parseMarks } from "./model/marks";
 import { t } from "./i18n";
 import type { Marks, MindDoc, MindNode } from "./model/types";
+// `import type`：编译后被整体擦除，不会产生 view.ts → settings.ts → main.ts
+// 的运行时循环依赖（settings.ts 自己 import 了 obsidian 与 main 的类型）。
+import type { MindmapSettings } from "./settings";
 import {
+  actualSize,
   cssTransform,
   fit,
   IDENTITY,
   panBy,
   zoomAt,
+  zoomTo,
   type Camera,
 } from "./view/camera";
 import { createControls } from "./view/controls";
@@ -46,7 +51,7 @@ import {
   startInlineEdit,
   type Intent,
 } from "./view/interaction";
-import type { LayoutResult } from "./view/layout";
+import type { LayoutResult, Size } from "./view/layout";
 import { openMarksPanel } from "./view/marks-panel";
 import { openNotePopover } from "./view/note-popover";
 import { attachNoteTips } from "./view/note-tip";
@@ -70,9 +75,11 @@ export class MindmapView extends TextFileView {
   /** `attachCameraEvents()` 只应在 `this.root` 上挂载一次；`this.root` 在构造后不会被替换，
    *  但 `render()` 可能在同一实例上因 `clear()` 多次重新进入创建分支。 */
   private eventsAttached = false;
-  /** 首次渲染时视口可能尚未完成布局（尺寸为 0），此时 `fitToView()` 会是无操作。
-   *  置位后由 `resizeObserver` 在视口获得非零尺寸时补一次 `fitToView()`。 */
-  private needsFit = false;
+  /** 首次渲染时视口可能尚未完成布局（尺寸为 0），此时 `applyInitialCamera()` 会是
+   *  无操作。置位后由 `resizeObserver` 在视口获得非零尺寸时补一次。
+   *  名字不叫 `needsFit`：初始相机到底是「适应窗口」还是 100%，取决于设置项
+   *  `defaultZoom`，见 `applyInitialCamera()`。 */
+  private needsInitialCamera = false;
   private resizeObserver: ResizeObserver | null = null;
   private editingId: string | null = null;
   /** 新增节点后自动进入编辑的目标 */
@@ -101,7 +108,12 @@ export class MindmapView extends TextFileView {
   /** parse() 抛异常时的错误信息；非 null 时 render() 走错误态分支，doc 为 null。 */
   private parseError: string | null = null;
 
-  constructor(leaf: WorkspaceLeaf) {
+  /** `settings` 是 getter 而不是快照：用户在设置页改完立刻生效（见 main.ts 的
+   *  `registerView`），视图不需要被重建。 */
+  constructor(
+    leaf: WorkspaceLeaf,
+    private readonly settings: () => MindmapSettings,
+  ) {
     super(leaf);
     this.root = el("div", "mindmap-view", this.contentEl);
     // 视图标题栏右上角的动作按钮（与 Obsidian 自带视图的图标按钮同一位置）。
@@ -154,12 +166,12 @@ export class MindmapView extends TextFileView {
   override onload(): void {
     super.onload();
     this.resizeObserver = new ResizeObserver((entries) => {
-      if (!this.needsFit) return;
+      if (!this.needsInitialCamera) return;
       const entry = entries[0];
       if (entry === undefined) return;
       const { width, height } = entry.contentRect;
       if (width <= 0 || height <= 0) return;
-      this.fitToView();
+      this.applyInitialCamera();
     });
     this.resizeObserver.observe(this.root);
 
@@ -229,10 +241,10 @@ export class MindmapView extends TextFileView {
       // this.data 不变——文件绝不会被这次失败的解析结果覆盖。
       this.doc = null;
       this.parseError = String(error);
-      // 错误态没有任何布局可言。留着上一份 lastLayout 会让排队中的
-      // fitToView() 按一张已经不在屏幕上的图去算相机，所以一并清掉。
+      // 错误态没有任何布局可言。留着上一份 lastLayout 会让排队中的初始相机
+      // 按一张已经不在屏幕上的图去算，所以一并清掉。
       this.lastLayout = null;
-      this.needsFit = false;
+      this.needsInitialCamera = false;
     }
     // 强制走 render() 里「layers === null」的重建分支：不仅重建图层/控件/
     // 工具栏，还会 clear(this.root) 一次，顺带清掉任何不属于当前渲染路径、
@@ -243,16 +255,17 @@ export class MindmapView extends TextFileView {
     this.render();
     if (this.parseError !== null) return;
     if (clear) {
-      // 视口此时可能还没有完成布局（尺寸为 0），fitToView() 在那种情况下是无操作。
-      // needsFit 置位后由 resizeObserver 在视口拿到非零尺寸时补一次。
-      this.needsFit = true;
-      this.fitToView();
+      // 视口此时可能还没有完成布局（尺寸为 0），applyInitialCamera() 在那种情况下
+      // 是无操作。needsInitialCamera 置位后由 resizeObserver 在视口拿到非零尺寸
+      // 时补一次。
+      this.needsInitialCamera = true;
+      this.applyInitialCamera();
     } else {
       // 外部改文件不应该在任何时间点让视口跳动：相机没有被上面的重置动过，
-      // render() 里已经 applyCamera() 过一次，这里只需要显式把 needsFit 关掉——
-      // 否则若此刻这个 leaf 是尺寸为 0 的后台标签页，之后任意一次尺寸变化都会
-      // 让 resizeObserver 补一次 fitToView()，把保留下来的相机冲掉。
-      this.needsFit = false;
+      // render() 里已经 applyCamera() 过一次，这里只需要显式把 needsInitialCamera
+      // 关掉——否则若此刻这个 leaf 是尺寸为 0 的后台标签页，之后任意一次尺寸
+      // 变化都会让 resizeObserver 补一次初始相机，把保留下来的相机冲掉。
+      this.needsInitialCamera = false;
     }
   }
 
@@ -315,7 +328,7 @@ export class MindmapView extends TextFileView {
     this.toolbar = null;
     this.panOrigin = null;
     this.camera = IDENTITY;
-    this.needsFit = false;
+    this.needsInitialCamera = false;
     clear(this.root);
   }
 
@@ -424,6 +437,7 @@ export class MindmapView extends TextFileView {
         onZoomIn: () => this.zoom(1.2),
         onZoomOut: () => this.zoom(1 / 1.2),
         onFit: () => this.fitToView(),
+        onActualSize: () => this.resetZoom(),
       });
       // 工具栏 DOM 挂在 this.root 下，会被上面的 clear(this.root) 一并清空，
       // 因此和 controls 一样，每次重新进入这个「创建图层」分支都要重建；
@@ -864,20 +878,48 @@ export class MindmapView extends TextFileView {
     this.applyCamera();
   }
 
+  /**
+   * 恢复 100% 原始大小（右上角的百分比读数就是这个按钮，见 controls.ts）。
+   *
+   * 以**视口中心**为不动点：正在读的那块内容留在原地变大，不会被拉回根节点——
+   * 缩到 32% 时点它是「把眼前这块放大到能看清」，而不是「回到开头」。想回根节点
+   * 就先点「适应窗口」再点它。与 `applyInitialCamera()` 的 100% 分支
+   * （`actualSize()`，那里要摆放根节点）语义不同，这是有意的：打开文件的那一刻
+   * 相机还没有「当前视口中心」可言。
+   */
+  private resetZoom(): void {
+    const rect = this.root.getBoundingClientRect();
+    this.camera = zoomTo(this.camera, 1, rect.width / 2, rect.height / 2);
+    this.applyCamera();
+  }
+
   /** 让整图适应当前视口。 */
   fitToView(): void {
+    this.placeCamera(fit);
+  }
+
+  /** 打开一张导图时的初始相机：按设置项 `defaultZoom` 选「适应窗口」或 100%。
+   *  设置是 getter 读的，所以改完设置对之后打开的视图立刻生效。 */
+  private applyInitialCamera(): void {
+    this.placeCamera(this.settings().defaultZoom === "actual" ? actualSize : fit);
+  }
+
+  /** `fitToView()` 与 `applyInitialCamera()` 的共同外壳：两者只差用哪个纯函数
+   *  算相机，其余（拿视口尺寸、跳过零尺寸视口、落地相机、清 needsInitialCamera）
+   *  完全一致。 */
+  private placeCamera(compute: (content: Size, viewport: Size) => Camera): void {
     if (this.lastLayout === null) return;
     const rect = this.root.getBoundingClientRect();
-    // 视口尚未完成布局时尺寸为 0：fit() 对此返回单位相机（不产生 NaN），但那不是
-    // 我们想要的「已完成适应」结果，所以在这里直接跳过、保留 needsFit，等
-    // resizeObserver 在视口拿到真实尺寸后再补一次 fitToView()。
+    // 视口尚未完成布局时尺寸为 0：fit()/actualSize() 对此返回单位相机（不产生
+    // NaN），但那不是我们想要的结果，所以在这里直接跳过、保留
+    // needsInitialCamera，等 resizeObserver 在视口拿到真实尺寸后再补一次。
     if (rect.width <= 0 || rect.height <= 0) return;
-    this.camera = fit(
+    this.camera = compute(
       { width: this.lastLayout.width, height: this.lastLayout.height },
       { width: rect.width, height: rect.height },
     );
     this.applyCamera();
-    this.needsFit = false;
+    this.needsInitialCamera = false;
   }
 
   private attachCameraEvents(): void {

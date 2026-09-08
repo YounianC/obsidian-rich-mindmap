@@ -32,7 +32,9 @@ export default class MindmapPlugin extends Plugin {
 
     this.registerView(
       MINDMAP_VIEW_TYPE,
-      (leaf: WorkspaceLeaf) => new MindmapView(leaf),
+      // 设置以 getter 注入，不是拷一份值：用户改完设置立刻生效，视图不需要被
+      // 重建，也不用像 i18n 那样再开一处模块级可变状态（见 i18n.ts 的说明）。
+      (leaf: WorkspaceLeaf) => new MindmapView(leaf, () => this.settings),
     );
 
     this.addSettingTab(new MindmapSettingTab(this.app, this));
@@ -274,6 +276,12 @@ export default class MindmapPlugin extends Plugin {
         stored.language === "en"
           ? stored.language
           : DEFAULT_SETTINGS.language,
+      // 同上：只接受两个已知取值。旧版本的 data.json 没有这个键，回落到 "fit"，
+      // 也就是这个设置项存在之前的行为。
+      defaultZoom:
+        stored.defaultZoom === "fit" || stored.defaultZoom === "actual"
+          ? stored.defaultZoom
+          : DEFAULT_SETTINGS.defaultZoom,
     };
   }
 
