@@ -239,6 +239,9 @@ export function buildNodeEl(
   // `:not(.mm-root)` 排除根节点，根有自己的 .mm-root 样式。
   if (isHeading(node)) classes.push("mm-heading");
   if (node.collapsed) classes.push("mm-collapsed");
+  // 空文本节点的盒子只有一个占位空格那么宽（约 12px），点击/删除都难命中。
+  // 这个类让 styles.css 把它撑到一个正常的命中区并画出虚线占位框，见那里的注释。
+  if (node.text === "") classes.push("mm-empty");
 
   const element = el("div", classes.join(" "));
   element.dataset.id = node.id;
@@ -246,13 +249,12 @@ export function buildNodeEl(
   buildMarks(node, element);
 
   const text = el("span", "mm-text", element);
-  if (node.text === "") {
-    // 空文本时保留一个空格：`.mm-node` 是 width: max-content 的绝对定位元素
-    // （见 AGENTS.md 第 9 条），完全空的 .mm-text 会让节点收缩到零宽度。
-    text.textContent = " ";
-  } else {
-    renderInline(parseInline(node.text), text, onOpenLink);
-  }
+  // 空文本节点的尺寸整个交给 CSS 的 `.mm-empty`（min-width/min-height，见
+  // styles.css）。这里**不要**再塞一个空格当占位符：曾经有过
+  // `text.textContent = " "`，注释写着「防止节点收缩到零宽度」，实测那句话是错的
+  // ——`.mm-node` 是 `white-space: normal`，单个空格被折叠，既不产生宽度也不产生
+  // 行盒，空节点实际渲染成 9×6px。别把它加回来。
+  if (node.text !== "") renderInline(parseInline(node.text), text, onOpenLink);
 
   if (node.collapsed && node.children.length > 0) {
     // `▸ N` + 胶囊形（见 styles.css 的 .mm-collapse-badge 注释）替代此前的纯

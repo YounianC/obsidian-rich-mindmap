@@ -152,6 +152,40 @@
   min-width: 1px;
 }
 
+/* 空文本节点（`.mm-empty`，见 node-el.ts 的 buildNodeEl）：文字只有一个占位
+ * 空格，盒子会收缩到约 12px 宽——用户反馈"想删掉一个没内容的节点，点击交互区
+ * 小得几乎点不到"。这里把命中区撑到一个正常大小。
+ *
+ * min-width 挂在 `.mm-text` 上而不是 `.mm-node`：布局尺寸取自
+ * getBoundingClientRect()（measure.ts），撑宽文字盒即撑宽节点盒，入边末段那条
+ * 沿子节点底边的水平线（layout.ts 的 bezier()，`H ${x1 + to.width}`）会自动跟着
+ * 变长。所以**不要**改成隐形热区（负 inset 的伪元素之类）——那会让可见边界和
+ * 可点区域不一致，还会盖住邻居节点。
+ *
+ * 用 em 而不是 px：节点字号随 depth 变（.mm-depth-1/2/3 与 .mm-root），命中区
+ * 跟着一起缩放才协调。
+ *
+ * 特异度 (0,3,0) 高于 `.mm-text.mm-editing` 的 `min-width: 2ch`（0,2,0），
+ * 双击空节点进编辑态时盒子不会反而缩一下。这是有意的，别把这条拆成
+ * `.mm-empty .mm-text`（0,2,0）——那样两条会打平，顺序决定胜负，很脆。 */
+.mm-node.mm-empty .mm-text {
+  min-width: 2.5em;
+  /* 高度同样会塌：`.mm-node` 是 `white-space: normal`，空文本节点里那个占位空格
+   * 被折叠掉，`.mm-text` 连行盒都不生成，节点高度只剩 padding 的 6px（实测
+   * 9×6px，比看起来还小）。1.5em 正好等于 `.mm-node` 的 line-height，让空节点
+   * 的高度与一行普通节点严格一致。 */
+  min-height: 1.5em;
+}
+
+/* 虚线占位框，让"这里有个还没写内容的节点"在静止状态下也看得见。
+ * 用 outline 而不是 border：`.mm-node` 有 border-radius，加 CSS border 会被圆角
+ * 撑变形（见上面 .mm-node.mm-heading 注释里的那次失败），而 outline 不参与布局、
+ * 且跟随圆角。`:not(.mm-root)` 排除根节点——根有自己的实线 border，再叠一圈虚线
+ * 就是双框。 */
+.mm-node.mm-empty:not(.mm-root) {
+  outline: 1px dashed var(--background-modifier-border);
+}
+
 /* ---------- 行内 Markdown ---------- */
 
 .mm-text code {
