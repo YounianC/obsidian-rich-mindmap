@@ -208,7 +208,7 @@ function renumber(
 - **`src/i18n.ts`**：不可删除提示语「该节点携带图上不可见的正文（标题下的散文、**有序列表**、代码块等），删除会连带丢掉这些内容」要去掉「有序列表」，中英两份。`src/view/toolbar.ts:30` 的注释同理。
 - **今天因为吃进有序列表而不可删的标题节点，改造后变成可删** —— `hasHiddenContent` 的判据（continuation 里有没有非空行）一个字不改，是有序列表行不再进 continuation 了。这是修复，不是回归。
 - **`src/model/tree-ops.ts:61`** 的 `hasHiddenContent` 文档注释里列举的「有序列表」要去掉。
-- **`README.md` / `README.zh-CN.md`**：删掉「已知限制」里的「有序列表原样保留，但永不成为节点」（`README.md:87`、`README.zh-CN.md:90`）；「隐形携带」一节的列举里去掉有序列表（`README.md:96` / `:140`、`README.zh-CN.md:99` / `:141`）；示例文件说明里的同一处列举（`README.md:28`、`README.zh-CN.md:29`）；层级模型一节的「nested unordered lists」→「nested lists」（`README.md:128` / `:132`）；「写回归一化」一节补第 7 节的新触发面。
+- **`README.md` / `README.zh-CN.md`**：两份 README 都**内嵌了示例文件的全文**，`README.md:87` / `README.zh-CN.md:90` 那行「有序列表原样保留，但永不成为节点」是这份内嵌副本的一部分（不是一个「已知限制」列表项 —— 「层级解析的已知局限」那个列表里根本没有有序列表这一条），必须与 `examples/conference-talk.md` 同步改；内嵌副本末尾的 `## Notes` / `## 备注` 段同理（`README.md:96`、`README.zh-CN.md:99`）。此外：示例说明里的「隐形携带」列举（`README.md:28`、`README.zh-CN.md:29`）；层级模型一节的「nested unordered lists」→「nested lists」（`README.md:128` / `:132`，`README.zh-CN.md:129` / `:134`）；「不在导图上显示」那段的列举（`README.md:140`、`README.zh-CN.md:141`）；「写回归一化」一节补第 7 节的新触发面。
 - **`examples/conference-talk.md`**：`## Follow-up` 名下那行 `1. Ordered lists are carried along verbatim but never become nodes` 现在会变成一个节点，而它的文字恰好在陈述被推翻的旧限制。改成一段真正在演示有序列表的内容（保持它与后面两个 `- (p4 …)` / `- (p5 …)` 之间的空行 —— 4.3 的同类守卫让这个空行继续保真），并同步改 `## Notes` 那段里「the ordered list under Follow-up」的表述。README 的截图会因此过时一屏，重截或在说明里注明即可。
 - **`AGENTS.md`**：「一句话架构」里「嵌套无序列表」→「嵌套列表」；第 2 条的归一化第 2 项措辞扩到「列表（无序或有序）」并写明 4.3 的同类守卫；第 4 项补第 7 节的新触发面。
 - **`docs/MANUAL-VERIFICATION.md:326`** 那条「隐形携带」清单项里去掉有序列表，另加一条有序列表的人工验证项。
