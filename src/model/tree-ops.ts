@@ -1,4 +1,11 @@
-import { isHeading, type Bullet, type Marks, type MindNode } from "./types";
+import {
+  isHeading,
+  isOrdered,
+  type Bullet,
+  type Marks,
+  type MindNode,
+  type OrderedForm,
+} from "./types";
 
 export function findNode(root: MindNode, id: string): MindNode | null {
   if (root.id === id) return root;
@@ -30,14 +37,40 @@ export function freshId(root: MindNode): string {
   return `n${max + 1}`;
 }
 
-/** 新节点跟着「未来的兄弟们」用同一个列表标记字符，避免在一个 `*` 列表里
- *  插进一行 `- `。根节点的 bullet 由 parser 取自文件里的第一个列表项，
- *  没有列表项时为 `-`（见 parser.ts）。
+/** 新节点继承来的列表标记形态。`ordered` 缺席即为无序项。 */
+interface MarkerForm {
+  bullet: Bullet;
+  ordered?: OrderedForm;
+}
+
+/** 读出一个节点的标记形态，供新节点继承。 */
+function markerOf(node: MindNode): MarkerForm {
+  return isOrdered(node)
+    ? { bullet: node.bullet, ordered: { ...node.ordered } }
+    : { bullet: node.bullet };
+}
+
+/** 新节点跟着「未来的兄弟们」用同一个列表标记形态，避免在一个 `*` 列表里插进
+ *  一行 `- `、或在一个 `1.` 列表里插进一行 `- `。根节点的形态由 parser 取自
+ *  文件里的第一个列表项，没有列表项时为 `-`（见 parser.ts）。
+ *
+ *  有序时带过来的 `number` 只是个合法初值；真正的号由调用方随后的 `renumber`
+ *  按段首重算。
  *
  *  构造出的对象不带 `heading`，因此天然是列表项形态：解析双向（标题与列表项
  *  都读成节点），写回单向（图上新建的节点永远是列表项）。 */
-function makeNode(id: string, text: string, bullet: Bullet): MindNode {
-  return { id, text, marks: {}, children: [], collapsed: false, continuation: [], bullet };
+function makeNode(id: string, text: string, marker: MarkerForm): MindNode {
+  const node: MindNode = {
+    id,
+    text,
+    marks: {},
+    children: [],
+    collapsed: false,
+    continuation: [],
+    bullet: marker.bullet,
+  };
+  if (marker.ordered !== undefined) node.ordered = { ...marker.ordered };
+  return node;
 }
 
 /**
@@ -54,11 +87,85 @@ function firstHeadingIndex(children: readonly MindNode[]): number {
   return index < 0 ? children.length : index;
 }
 
+/** 兄弟数组里的一段有序节点：左闭右开的下标区间，加上该段的分隔符。 */
+interface OrderedRun {
+  start: number;
+  end: number;
+  delim: OrderedForm["delim"];
+}
+
+/**
+ * 把兄弟数组切成若干「极大的、连续的、**同 delim** 的有序节点」段。
+ *
+ * delim 不同在 CommonMark 里就是两个列表，跨 delim 连号是错的：`1. / 2. / 5) / 6)`
+ * 是「从 1 起的一个列表」加「从 5 起的另一个列表」，不是一个 1–4 的列表。
+ * 无序节点与标题节点都不带 `ordered`，因此天然会把段切断。
+ */
+function orderedRuns(children: readonly MindNode[]): OrderedRun[] {
+  const runs: OrderedRun[] = [];
+  let current: OrderedRun | null = null;
+  for (let i = 0; i < children.length; i++) {
+    const node = children[i];
+    if (!isOrdered(node)) {
+      current = null;
+      continue;
+    }
+    if (current !== null && current.delim === node.ordered.delim) {
+      current.end = i + 1;
+      continue;
+    }
+    current = { start: i, end: i + 1, delim: node.ordered.delim };
+    runs.push(current);
+  }
+  return runs;
+}
+
+/**
+ * 结构变更后重排有序兄弟的序号。
+ *
+ * 每一段的起始号取 `prev` 里**同序号那一段**的段首号；`prev` 里没有对应段
+ * （新长出来的段）时取 1。段内其余节点依次 +1，delim 各自保留不动。
+ *
+ * 「取变更前的段首号」这条规则同时照顾到三件事：保留用户从 `3.` 起头的列表；
+ * 删掉段首时剩余节点各自保号（diff 最小）；把一个 `5.` 拖到 `1. / 2.` 的段首
+ * 时不会把整段带成 5,6,7。
+ *
+ * **这个函数只被下面四个结构变更点调用。** 打开文件不改再切走时一个 tree-ops
+ * 函数都不会被调用，所以什么都不会重编号——AGENTS.md 第 2 条不受影响。
+ *
+ * 号没有变化的节点保持原对象引用，不做无谓的复制。
+ */
+export function renumber(
+  prev: readonly MindNode[],
+  next: readonly MindNode[],
+): MindNode[] {
+  const prevRuns = orderedRuns(prev);
+  const nextRuns = orderedRuns(next);
+  if (nextRuns.length === 0) return [...next];
+
+  const result = [...next];
+  nextRuns.forEach((run, index) => {
+    const prevRun = prevRuns[index];
+    const anchor = prevRun === undefined ? null : prev[prevRun.start];
+    // orderedRuns 只把带 ordered 的下标收进段里，所以 anchor 必然是有序节点；
+    // isOrdered 在这里是把这一点转达给类型系统，不是运行时判断。
+    const start = anchor !== null && isOrdered(anchor) ? anchor.ordered.number : 1;
+    for (let i = run.start; i < run.end; i++) {
+      const node = result[i];
+      if (!isOrdered(node)) continue;
+      const number = start + (i - run.start);
+      if (node.ordered.number === number) continue;
+      result[i] = { ...node, ordered: { ...node.ordered, number } };
+    }
+  });
+  return result;
+}
+
 /**
  * 该节点是否携带图上看不见的正文。
  *
  * 标题节点的 `continuation` 装着标题行之后、下一个节点行之前的一切——散文段落、
- * 有序列表、表格、代码块。这些内容不在导图上显示，所以删除这个节点会删掉用户
+ * 表格、代码块。这些内容不在导图上显示，所以删除这个节点会删掉用户
  * 看不见的东西。只有空行不算：`## A` 与它名下第一个列表项之间那个空行没有信息。
  */
 export function hasHiddenContent(node: MindNode): boolean {
@@ -103,16 +210,28 @@ export function addChild(
   text = "",
 ): { root: MindNode; newId: string } {
   const newId = freshId(root);
-  // 父节点找不到时（调用方传了无效 id）mapTree 不会插入任何东西，bullet 取值
-  // 无关紧要，回退到父节点缺省的 `-`。
-  const child = makeNode(newId, text, findNode(root, parentId)?.bullet ?? "-");
+  // 父节点找不到时（调用方传了无效 id）mapTree 不会插入任何东西，形态取值
+  // 无关紧要，回退到缺省的 `-`。
+  const parentNode = findNode(root, parentId);
+  let marker: MarkerForm = { bullet: "-" };
+  if (parentNode !== null) {
+    marker = isOrdered(parentNode)
+      ? // 初始号给 1：新子节点要么独自成段（起始号本就是 1），要么接在既有段尾、
+        // 号由下面的 renumber 按段首重算。
+        {
+          bullet: parentNode.bullet,
+          ordered: { number: 1, delim: parentNode.ordered.delim },
+        }
+      : { bullet: parentNode.bullet };
+  }
+  const child = makeNode(newId, text, marker);
   const next = mapTree(root, (node) => {
     if (node.id !== parentId) return null;
     // 插在第一个标题子节点之前，维护 list-before-heading 不变量。父节点没有
     // 标题子节点时这个下标就是末尾，行为与改造前一致。
     const children = [...node.children];
     children.splice(firstHeadingIndex(children), 0, child);
-    return { ...node, collapsed: false, children };
+    return { ...node, collapsed: false, children: renumber(node.children, children) };
   });
   return { root: next, newId };
 }
@@ -148,7 +267,9 @@ export function addSibling(
           indentUnit: null,
         },
       }
-    : makeNode(newId, text, target.bullet);
+    : // 参照兄弟是有序项时连号一起复制。插入位置恒为 index + 1，新节点永远不会
+      // 成为段首，所以这个复制来的号只是个会被 renumber 立刻覆盖的合法初值。
+      makeNode(newId, text, markerOf(target));
 
   const next = mapTree(root, (parent) => {
     const index = parent.children.findIndex((c) => c.id === siblingId);
@@ -161,7 +282,7 @@ export function addSibling(
       ? Math.max(index + 1, boundary)
       : Math.min(index + 1, boundary);
     children.splice(at, 0, node);
-    return { ...parent, children };
+    return { ...parent, children: renumber(parent.children, children) };
   });
   return { root: next, newId };
 }
@@ -186,11 +307,11 @@ export function removeNode(
   const nextSelectionId =
     siblings[index + 1]?.id ?? siblings[index - 1]?.id ?? parent.id;
 
-  const next = mapTree(root, (node) =>
-    node.id === parent.id
-      ? { ...node, children: node.children.filter((c) => c.id !== id) }
-      : null,
-  );
+  const next = mapTree(root, (node) => {
+    if (node.id !== parent.id) return null;
+    const children = node.children.filter((c) => c.id !== id);
+    return { ...node, children: renumber(node.children, children) };
+  });
   return { root: next, nextSelectionId };
 }
 
@@ -287,11 +408,11 @@ export function moveNode(
   // heading.prefix 与新位置的层级不再对应。
   if (moving === null || isHeading(moving)) return root;
 
-  const detached = mapTree(root, (node) =>
-    node.children.some((c) => c.id === id)
-      ? { ...node, children: node.children.filter((c) => c.id !== id) }
-      : null,
-  );
+  const detached = mapTree(root, (node) => {
+    if (!node.children.some((c) => c.id === id)) return null;
+    const children = node.children.filter((c) => c.id !== id);
+    return { ...node, children: renumber(node.children, children) };
+  });
 
   return mapTree(detached, (node) => {
     if (node.id !== newParentId) return null;
@@ -300,7 +421,10 @@ export function moveNode(
     // 不变量：落在标题之后的列表项在重新解析时会跑进那个标题名下。
     const limit = firstHeadingIndex(children);
     children.splice(Math.max(0, Math.min(index, limit)), 0, clearNoteRaw(moving));
-    return { ...node, collapsed: false, children };
+    // 源父与目标父相同时这已是第二次 renumber，prev 是 detach 之后的数组——
+    // 结果仍然正确（1,2,3 里把 c 移到 0 位：detach 得 a=1,b=2，insert 得
+    // c=1,a=2,b=3）。
+    return { ...node, collapsed: false, children: renumber(node.children, children) };
   });
 }
 

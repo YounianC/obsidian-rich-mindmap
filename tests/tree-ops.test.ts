@@ -13,6 +13,7 @@ import {
   moveNode,
   navigate,
   removeNode,
+  renumber,
   setMarks,
   setNote,
   setText,
@@ -318,9 +319,10 @@ describe("标题节点的编辑约束", () => {
   });
 
   it("removeNode 同样拒绝携带不可见正文的列表项（判据不看形态）", () => {
-    const root = parse("# t\n\n- a\n1. 步骤\n- b\n", "我的导图.md").root;
+    // 用表格行而不是有序列表：有序列表现在会产生节点，不再是「图上不可见的正文」。
+    const root = parse("# t\n\n- a\n| 表头 |\n- b\n", "我的导图.md").root;
     const a = root.children[0];
-    expect(a.continuation).toEqual(["1. 步骤"]);
+    expect(a.continuation).toEqual(["| 表头 |"]);
     expect(removeNode(root, a.id).root).toBe(root);
   });
 
@@ -455,5 +457,185 @@ describe("moveNode 使备注的 raw 失效", () => {
     const c = doc.root.children[1];
     const next = moveNode(doc.root, a.id, c.id, 0);
     expect(next.children[0].note?.raw).toEqual(["  > C 的备注"]);
+  });
+});
+
+/** 造一串列表项兄弟。`"-"` 表示无序，`"3."` / `"5)"` 表示有序。 */
+function siblings(...specs: string[]): MindNode[] {
+  return specs.map((spec, index) => {
+    const base: MindNode = {
+      id: `s${index}`,
+      text: `t${index}`,
+      marks: {},
+      children: [],
+      collapsed: false,
+      continuation: [],
+      bullet: "-",
+    };
+    if (spec === "-") return base;
+    const delim = spec.slice(-1) as "." | ")";
+    return { ...base, ordered: { number: Number(spec.slice(0, -1)), delim } };
+  });
+}
+
+/** 把兄弟串还原成 `siblings` 的输入形态，便于整串断言。 */
+function specs(nodes: readonly MindNode[]): string[] {
+  return nodes.map((n) =>
+    n.ordered === undefined ? "-" : `${n.ordered.number}${n.ordered.delim}`,
+  );
+}
+
+describe("renumber", () => {
+  it("段内插入：起始号沿用变更前的段首号", () => {
+    const prev = siblings("1.", "2.", "3.");
+    const next = [prev[0], ...siblings("9."), prev[1], prev[2]];
+    expect(specs(renumber(prev, next))).toEqual(["1.", "2.", "3.", "4."]);
+  });
+
+  it("删掉段首：剩下的节点各自保号，不被拉回 1", () => {
+    const prev = siblings("3.", "4.", "5.");
+    expect(specs(renumber(prev, [prev[1], prev[2]]))).toEqual(["3.", "4."]);
+  });
+
+  it("拖到段首：起始号仍取变更前的段首号，不被新来的节点带偏", () => {
+    const prev = siblings("1.", "2.");
+    const next = [...siblings("5."), prev[0], prev[1]];
+    expect(specs(renumber(prev, next))).toEqual(["1.", "2.", "3."]);
+  });
+
+  it("新长出来的段从 1 起", () => {
+    expect(specs(renumber([], siblings("1.")))).toEqual(["1."]);
+    expect(specs(renumber([], siblings("7.")))).toEqual(["1."]);
+  });
+
+  it("无序节点把有序段一分为二，第二段从 1 起", () => {
+    const prev = siblings("1.", "2.", "3.");
+    const next = [prev[0], ...siblings("-"), prev[1], prev[2]];
+    expect(specs(renumber(prev, next))).toEqual(["1.", "-", "1.", "2."]);
+  });
+
+  it("delim 不同就是两个段，各自独立计数", () => {
+    const prev = siblings("1.", "2.", "5)", "6)");
+    const next = [prev[0], ...siblings("9."), prev[1], prev[2], prev[3]];
+    expect(specs(renumber(prev, next))).toEqual(["1.", "2.", "3.", "5)", "6)"]);
+  });
+
+  it("纯无序的兄弟串原样返回", () => {
+    const prev = siblings("-", "-");
+    const next = [prev[0], ...siblings("-"), prev[1]];
+    expect(specs(renumber(prev, next))).toEqual(["-", "-", "-"]);
+    expect(renumber(prev, next).every((n) => n.ordered === undefined)).toBe(true);
+  });
+
+  it("号没变的节点保持同一个对象引用", () => {
+    const prev = siblings("1.", "2.");
+    const out = renumber(prev, [prev[0], prev[1]]);
+    expect(out[0]).toBe(prev[0]);
+    expect(out[1]).toBe(prev[1]);
+  });
+
+  it("不改动入参数组", () => {
+    const prev = siblings("1.", "2.");
+    renumber(prev, [prev[0], ...siblings("9."), prev[1]]);
+    expect(specs(prev)).toEqual(["1.", "2."]);
+    expect(prev[1].ordered).toEqual({ number: 2, delim: "." });
+  });
+});
+
+/** n0=根 / n1=a / n2=b / n3=c，一条从 1 起的有序列表 */
+function orderedTree(): MindNode {
+  return parse("# 根\n\n1. a\n2. b\n3. c\n", "x.md").root;
+}
+
+describe("有序列表上的结构编辑", () => {
+  it("addSibling 插入后整段重排", () => {
+    const { root } = addSibling(orderedTree(), "n1", "new");
+    expect(root.children.map((c) => c.text)).toEqual(["a", "new", "b", "c"]);
+    expect(root.children.map((c) => c.ordered?.number)).toEqual([1, 2, 3, 4]);
+  });
+
+  it("addSibling 继承参照兄弟的分隔符", () => {
+    const root = parse("# 根\n\n1) a\n", "x.md").root;
+    const next = addSibling(root, "n1", "new").root;
+    expect(next.children.map((c) => c.ordered)).toEqual([
+      { number: 1, delim: ")" },
+      { number: 2, delim: ")" },
+    ]);
+  });
+
+  it("removeNode 删掉段首后剩余节点保号", () => {
+    const root = parse("# 根\n\n3. a\n4. b\n5. c\n", "x.md").root;
+    const next = removeNode(root, "n1").root;
+    expect(next.children.map((c) => c.ordered?.number)).toEqual([3, 4]);
+  });
+
+  it("removeNode 删掉中间节点后其后的重排", () => {
+    const next = removeNode(orderedTree(), "n2").root;
+    expect(next.children.map((c) => c.text)).toEqual(["a", "c"]);
+    expect(next.children.map((c) => c.ordered?.number)).toEqual([1, 2]);
+  });
+
+  it("addChild 给有序父节点产出有序子节点，从 1 起", () => {
+    const { root } = addChild(orderedTree(), "n1", "child");
+    const a = findNode(root, "n1") as MindNode;
+    expect(a.children[0].ordered).toEqual({ number: 1, delim: "." });
+  });
+
+  it("addChild 给无序父节点产出无序子节点", () => {
+    const root = parse("# 根\n\n* a\n", "x.md").root;
+    const a = findNode(addChild(root, "n1", "child").root, "n1") as MindNode;
+    expect(a.children[0].ordered).toBeUndefined();
+    expect(a.children[0].bullet).toBe("*");
+  });
+
+  it("addChild 到根：继承文件里第一个列表项的形态", () => {
+    const root = parse("# 根\n\n1) a\n", "x.md").root;
+    const next = addChild(root, "n0", "new").root;
+    expect(next.children[1].ordered).toEqual({ number: 2, delim: ")" });
+  });
+
+  it("moveNode 跨父移动：源父与目标父各自重排", () => {
+    // 按文档顺序分配 id：n1=a / n2=b / n3=b1 / n4=c
+    const root = parse("# 根\n\n1. a\n2. b\n  1. b1\n3. c\n", "x.md").root;
+    const next = moveNode(root, "n3", "n0", 0);
+    expect(next.children.map((c) => c.text)).toEqual(["b1", "a", "b", "c"]);
+    expect(next.children.map((c) => c.ordered?.number)).toEqual([1, 2, 3, 4]);
+    expect((findNode(next, "n2") as MindNode).children).toEqual([]);
+  });
+
+  it("moveNode 同父内移动：两次重排的结果正确", () => {
+    const next = moveNode(orderedTree(), "n3", "n0", 0);
+    expect(next.children.map((c) => c.text)).toEqual(["c", "a", "b"]);
+    expect(next.children.map((c) => c.ordered?.number)).toEqual([1, 2, 3]);
+  });
+
+  it("moveNode 把无序节点拖进有序段：段一分为二，第二段从 1 起", () => {
+    const root = parse("# 根\n\n1. a\n2. b\n3. c\n\n## A\n\n- u\n", "x.md").root;
+    const u = root.children.find((c) => c.text === "A")?.children[0] as MindNode;
+    const next = moveNode(root, u.id, "n0", 1);
+    expect(next.children.slice(0, 4).map((c) => c.text)).toEqual(["a", "u", "b", "c"]);
+    expect(next.children.slice(0, 4).map((c) => c.ordered?.number)).toEqual([
+      1,
+      undefined,
+      1,
+      2,
+    ]);
+  });
+
+  it("纯无序的树经过四个 op 后不会凭空长出 ordered 字段", () => {
+    const hasOrdered = (node: MindNode): boolean =>
+      node.ordered !== undefined || node.children.some(hasOrdered);
+    let root = tree();
+    root = addChild(root, "n1", "x").root;
+    root = addSibling(root, "n2", "y").root;
+    root = moveNode(root, "n4", "n1", 0);
+    root = removeNode(root, "n3").root;
+    expect(hasOrdered(root)).toBe(false);
+  });
+
+  it("编辑后序列化出的序号连续", () => {
+    const doc = parse("# 根\n\n1. a\n2. b\n", "x.md");
+    const next = { ...doc, root: addSibling(doc.root, "n1", "new").root };
+    expect(serialize(next)).toBe("# 根\n\n1. a\n2. new\n3. b\n");
   });
 });

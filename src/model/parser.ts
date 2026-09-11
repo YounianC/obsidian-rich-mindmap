@@ -1,6 +1,6 @@
 import { parseMarks } from "./marks";
 import { splitNote } from "./note";
-import type { Bullet, MindDoc, MindNode } from "./types";
+import type { Bullet, MindDoc, MindNode, OrderedForm } from "./types";
 
 /** 第 2 组捕获结束围栏 `---` 之后的尾随空白，写回时原样重放。 */
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---([ \t]*)(?:\r?\n|$)/;
@@ -14,6 +14,14 @@ const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---([ \t]*)(?:\r?\n|$)/;
 const HEADING_RE = /^(#{1,6}[ \t]+)(.*)$/;
 const TRAILING_BLANK_RE = /[ \t]*$/;
 const LIST_ITEM_RE = /^([ \t]*)([-*+])[ \t]+(.*)$/;
+/**
+ * 有序列表项。第 2 组是序号（CommonMark 上限 9 位），第 3 组是分隔符。
+ *
+ * 与 `LIST_ITEM_RE` 一样要求标记与文字之间有空白，所以 `1.x` 不是列表项；
+ * 位数上限让 `1234567890. x` 这类长数字开头的散文行不被误判（正则回溯时
+ * `[.)]` 永远对不上数字，整条匹配失败）。
+ */
+const ORDERED_ITEM_RE = /^([ \t]*)(\d{1,9})([.)])[ \t]+(.*)$/;
 /** 开围栏允许带信息串（```js）；闭围栏不允许（见 closesFence）。 */
 const FENCE_OPEN_RE = /^[ \t]*(`{3,}|~{3,})/;
 const FENCE_CLOSE_RE = /^[ \t]*(`{3,}|~{3,})[ \t]*$/;
@@ -23,6 +31,47 @@ function indentWidth(indent: string): number {
   let width = 0;
   for (const ch of indent) width += ch === "\t" ? 4 : 1;
   return width;
+}
+
+interface ItemMatch {
+  indent: string;
+  bullet: Bullet;
+  ordered: OrderedForm | null;
+  text: string;
+}
+
+/**
+ * 把一行识别成列表项（无序或有序），不是列表项时返回 null。
+ *
+ * 两条正则的首个有效字符不可能相同（`-*+` 与数字），所以试的顺序无关紧要。
+ */
+function matchItem(line: string): ItemMatch | null {
+  const unordered = LIST_ITEM_RE.exec(line);
+  if (unordered !== null) {
+    return {
+      indent: unordered[1],
+      // 正则第 2 组只可能匹配到 `-`/`*`/`+` 三者之一，这里的断言是把这一点从
+      // 正则转达给类型系统，不是运行时判断。
+      bullet: unordered[2] as Bullet,
+      ordered: null,
+      text: unordered[3],
+    };
+  }
+
+  const ordered = ORDERED_ITEM_RE.exec(line);
+  if (ordered === null) return null;
+  return {
+    indent: ordered[1],
+    // 有序项的 bullet 是死字段（serialize 只在 ordered 缺席时读它），填入与
+    // parser 各处一致的占位值。
+    bullet: "-",
+    ordered: {
+      number: Number(ordered[2]),
+      // 同上，第 3 组只可能是 `.` 或 `)`。
+      delim: ordered[3] as OrderedForm["delim"],
+    },
+    text: ordered[4],
+  };
 }
 
 interface HeadingEntry {
@@ -40,6 +89,8 @@ interface ItemEntry {
   indent: string;
   depthWidth: number;
   bullet: Bullet;
+  /** 有序项的号与分隔符；无序项为 null */
+  ordered: OrderedForm | null;
   text: string;
   continuation: string[];
 }
@@ -56,7 +107,7 @@ function closesFence(line: string, marker: string): boolean {
 /**
  * 对正文（已剥掉 frontmatter）做一次线性扫描，切成标题条目与列表项条目。
  *
- * 非节点行（散文、有序列表、表格、围栏、缩进续行）一律落进「当前条目」的
+ * 非节点行（散文、表格、围栏、缩进续行）一律落进「当前条目」的
  * continuation；还没有任何条目时落进 preamble。
  *
  * 围栏状态机是必需的：改造前遇到围栏就终止扫描，所以代码块里的 `## 假标题`
@@ -116,12 +167,23 @@ function scanDocument(lines: string[]): { entries: ScanEntry[]; preamble: string
       // 是丢弃的。这是刻意的选择：归一化越少越好，而第 2 条的措辞是「项之间
       // 夹空行」，指的是直接夹在两个项之间的空行。
       const previous = entries[entries.length - 1];
+      const following = j < end ? matchItem(lines[j]) : null;
       if (
-        j < end &&
-        LIST_ITEM_RE.test(lines[j]) &&
+        following !== null &&
         previous !== undefined &&
         previous.kind === "item" &&
-        previous.continuation.length === 0
+        previous.continuation.length === 0 &&
+        // 第四个条件（同类守卫）：空行两侧必须是**同一个列表**。CommonMark 里
+        // 无序与有序是两个列表，有序之间换分隔符（`1.` → `1)`）同样开一个新
+        // 列表，压缩它们之间的空行既没有必要，又会在今天逐字节保真的文件
+        // （`- a` / 空行 / `1. x`，`1. a` / 空行 / `1) x`）上凭空产生差异
+        // ——那是第六条未获许可的归一化。少了这一条，CORPUS 里的
+        // `"# t\n\n- a\n1. 步骤\n\n- b\n"` 立刻变红。
+        //
+        // 刻意**不**比较无序的标记字符：CommonMark 认为 `- a` 与 `* b` 也是两个
+        // 列表，但「`- a` / 空行 / `* b` 被压缩」是改造前就有的行为，收紧它属于
+        // 本次改动之外的范围。这里只堵住本次新开的口子。
+        (previous.ordered?.delim ?? null) === (following.ordered?.delim ?? null)
       ) {
         i = j;
         continue;
@@ -147,16 +209,15 @@ function scanDocument(lines: string[]): { entries: ScanEntry[]; preamble: string
       continue;
     }
 
-    const item = LIST_ITEM_RE.exec(line);
+    const item = matchItem(line);
     if (item !== null) {
       entries.push({
         kind: "item",
-        indent: item[1],
-        depthWidth: indentWidth(item[1]),
-        // 正则第 2 组只可能匹配到 `-`/`*`/`+` 三者之一，这里的断言是把这一点
-        // 从正则转达给类型系统，不是运行时判断。
-        bullet: item[2] as Bullet,
-        text: item[3],
+        indent: item.indent,
+        depthWidth: indentWidth(item.indent),
+        bullet: item.bullet,
+        ordered: item.ordered,
+        text: item.text,
         continuation: [],
       });
       i++;
@@ -326,6 +387,9 @@ function buildTree(entries: readonly ScanEntry[], root: MindNode): void {
       continuation: itemNote.rest,
       bullet: entry.bullet,
     };
+    // 只在有序时挂字段：`ordered: null` 与「不是有序项」是两种状态，让无序节点
+    // 根本不出现这个键，结构比较与 JSON 快照都更干净（与 note 同一条规则）。
+    if (entry.ordered !== null) node.ordered = { ...entry.ordered };
     if (itemNote.note !== null) node.note = itemNote.note;
 
     listStack[depth - 1].children.push(node);
@@ -336,7 +400,7 @@ function buildTree(entries: readonly ScanEntry[], root: MindNode): void {
 
 /**
  * 把 Markdown 解析为思维导图文档。
- * 节点行之外的一切内容（frontmatter、前言、散文、有序列表、围栏、续行）
+ * 节点行之外的一切内容（frontmatter、前言、散文、表格、围栏、续行）
  * 原样保留在 preamble 或某个节点的 continuation 里。
  */
 export function parse(md: string, fileName: string): MindDoc {
@@ -375,6 +439,8 @@ export function parse(md: string, fileName: string): MindDoc {
   const firstBlock = itemBlocks(bodyEntries)[0];
   const indentUnit = firstBlock === undefined ? "  " : detectIndentUnitString(firstBlock);
 
+  const firstItem = entries.find((e): e is ItemEntry => e.kind === "item");
+
   const root: MindNode = {
     id: "n0",
     text: hasHeading ? rootEntry.text : fileName.replace(/\.md$/, ""),
@@ -387,7 +453,7 @@ export function parse(md: string, fileName: string): MindDoc {
     continuation: hasHeading ? rootEntry.continuation : [],
     // 根节点自身没有列表行；这里存的是「文件里第一个列表项用的标记字符」，
     // 供 tree-ops 给根的新直接子节点挑一个和现有兄弟一致的标记（见 makeNode）。
-    bullet: entries.find((e): e is ItemEntry => e.kind === "item")?.bullet ?? "-",
+    bullet: firstItem?.bullet ?? "-",
     heading: {
       level: 1,
       prefix: hasHeading ? rootEntry.prefix : "# ",
@@ -398,6 +464,12 @@ export function parse(md: string, fileName: string): MindDoc {
       indentUnit: null,
     },
   };
+
+  // 与 bullet 完全对称：根节点没有自己的列表行，这里存的是「文件里第一个列表项
+  // 的形态」，供 tree-ops 给根的新直接子节点挑一个与现有兄弟一致的标记。
+  // 因此 isOrdered(root) 可能为真而根并不是有序列表项——安全性来自 serialize 的
+  // 结构：根走 doc.root.heading.prefix 那条独立分支，永远不进 serializeNodes。
+  if (firstItem?.ordered != null) root.ordered = { ...firstItem.ordered };
 
   buildTree(bodyEntries, root);
 

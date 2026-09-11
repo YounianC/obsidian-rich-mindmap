@@ -95,6 +95,26 @@ const CORPUS: string[] = [
   "# t\n\n- a\n  普通续行\n  > 不是备注\n- b\n",
   "# t\n\n## A\n> 标题的备注\n\n- a\n",
   "# t\n\n> 根下面的引用块\n\n- a\n",
+  // 有序列表参与层级。序号、分隔符、起始号、重复号都必须逐字保留——重算序号
+  // 就是第六条未获许可的归一化。混排的几条缩进宽度刻意保持一致（都用 2 空格），
+  // 宽度不一致的形态落在归一化第 4 条里，见下面「已知归一化」的单独断言。
+  "# t\n\n1. a\n  1. b\n  2. c\n2. d\n",
+  "# t\n\n1) a\n  1) b\n",
+  "# t\n\n3. a\n4. b\n5. c\n",
+  "# t\n\n1. a\n1. b\n1. c\n",
+  "# t\n\n10. a\n11. b\n",
+  "# t\n\n123456789. a\n",
+  "# t\n\n1. a\n  - b\n2. c\n",
+  "# t\n\n- a\n  1. b\n- c\n",
+  "# t\n\n1. a\n  续行内容\n2. b\n",
+  "# t\n\n1. (p3 60% flag:blue) a\n",
+  "# t\n\n1. a\n  > 备注\n2. b\n",
+  "# t\n\n## A\n\n1. a\n\n## B\n\n- b\n",
+  // 同类守卫：跨标记类型的空行分隔的是两个不同的列表（CommonMark 语义），
+  // 不是一个松散列表的两个项，压缩它就是未获许可的字节差异。
+  "# t\n\n- a\n\n1. x\n",
+  "# t\n\n1. a\n\n- x\n",
+  "# t\n\n1. a\n\n1) x\n",
 ];
 
 describe("serialize(parse(md)) === md", () => {
@@ -156,6 +176,9 @@ function stripIds(node: MindNode): unknown {
     collapsed: node.collapsed,
     continuation: node.continuation,
     bullet: node.bullet,
+    // 与 note 同一条规则：用 ?? null 而不是直接放 node.ordered，避免
+    // 「键不存在」与「值为 undefined」在 toEqual 下的歧义。
+    ordered: node.ordered ?? null,
     heading: node.heading,
     // 只比 text 不比 raw：raw 的字节保真由上面的 CORPUS 逐字节断言覆盖，
     // 而 fuzz 生成的备注 raw 恒为 null、往返回来必然带上真实行，比它会产生假反例。
@@ -196,22 +219,56 @@ const noteArb = fc.constantFrom(
 /** 三种合法的无序列表标记，逐节点独立取值——同一文件里混用是合法 Markdown。 */
 const bulletArb = fc.constantFrom(...(["-", "*", "+"] as const));
 
+/**
+ * 列表项的标记形态：约一半无序（三种字符），约一半有序（两种分隔符、号随机）。
+ *
+ * 号可以任意取值：`parse` 逐字读回来，`serialize` 逐字写出去，往返与号无关。
+ * 刻意覆盖 1 之外的起始号与重复号——它们正是「序号不得从下标重算」这条约束
+ * 的随机化压力来源。
+ */
+const markerArb = fc.oneof(
+  bulletArb.map((bullet) => ({ bullet, ordered: undefined as MindNode["ordered"] })),
+  fc
+    .record({
+      number: fc.integer({ min: 1, max: 999999999 }),
+      delim: fc.constantFrom("." as const, ")" as const),
+    })
+    // 有序项的 bullet 恒为 `-`：它是死字段，parser 对每个有序项都填这个占位值，
+    // 所以别的取值产出的 doc 不是规范形态（parse 产不出来），会报假反例。
+    .map(({ number, delim }) => ({ bullet: "-" as const, ordered: { number, delim } })),
+);
+
 /** 列表项形态的节点（不带 heading）。 */
 function itemNodeArb(depth: number): fc.Arbitrary<MindNode> {
   // depth 递减到 0 即停，因此可以直接递归构造，无需 fc.letrec。
   const childrenArb: fc.Arbitrary<MindNode[]> =
     depth <= 0 ? fc.constant([]) : fc.array(itemNodeArb(depth - 1), { maxLength: 3 });
 
-  return fc.record({
-    id: fc.constant("x"),
-    text: safeText,
-    marks: marksArb,
-    children: childrenArb,
-    collapsed: fc.constant(false),
-    continuation: continuationArb,
-    bullet: bulletArb,
-    note: noteArb,
-  });
+  return fc
+    .record({
+      text: safeText,
+      marks: marksArb,
+      children: childrenArb,
+      continuation: continuationArb,
+      marker: markerArb,
+      note: noteArb,
+    })
+    .map((raw): MindNode => {
+      // 用 .map 逐字段组装而不是 fc.record 直接产出：`ordered` 与 `note` 都必须
+      // 是「键不存在」而不是「值为 undefined」，才和 parser 的产出一致。
+      const node: MindNode = {
+        id: "x",
+        text: raw.text,
+        marks: raw.marks,
+        children: raw.children,
+        collapsed: false,
+        continuation: raw.continuation,
+        bullet: raw.marker.bullet,
+      };
+      if (raw.marker.ordered !== undefined) node.ordered = raw.marker.ordered;
+      if (raw.note !== undefined) node.note = raw.note;
+      return node;
+    });
 }
 
 /** 标题名下的列表块里是否存在「列表项的列表项」——即文件里真会写出缩进的嵌套。 */
@@ -323,39 +380,51 @@ const docArb: fc.Arbitrary<MindDoc> = fc
         rootIndentUnit: indentUnitArbFor(seed.items),
         preamble: fc.constantFrom("", "说明文字\n\n"),
       })
-      .map((raw): MindDoc => ({
-        // 兜底值，只在整条标题祖先链都没有单位时才被 serialize 用到。
-        indentUnit: "  ",
-        frontmatter: raw.frontmatter,
-        // 无 frontmatter 时结束围栏根本不存在，其尾随空白只能是空串。
-        frontmatterFenceSuffix:
-          raw.frontmatter === null ? "" : raw.frontmatterFenceSuffix,
-        hasHeading: seed.hasHeading,
-        root: {
+      .map((raw): MindDoc => {
+        const children = [...seed.items, ...seed.headings];
+        // 根节点没有自己的列表行，parser 用文件里第一个列表项的形态回填。
+        const rootMarker = firstItemMarker(children) ?? { bullet: "-" as const };
+        const root: MindNode = {
           id: "n0",
           text: raw.rootText,
           marks: {},
-          children: [...seed.items, ...seed.headings],
+          children,
           collapsed: false,
           continuation: raw.rootContinuation,
-          // 根节点没有自己的列表行，parser 用文件里第一个列表项的标记字符回填。
-          bullet: firstItemBullet([...seed.items, ...seed.headings]) ?? "-",
+          bullet: rootMarker.bullet,
           heading: {
             level: 1,
             prefix: raw.rootPrefix,
             suffix: raw.rootSuffix,
             indentUnit: raw.rootIndentUnit,
           },
-        },
-        preamble: raw.preamble,
-      })),
+        };
+        if (rootMarker.ordered !== undefined) root.ordered = rootMarker.ordered;
+        return {
+          // 兜底值，只在整条标题祖先链都没有单位时才被 serialize 用到。
+          indentUnit: "  ",
+          frontmatter: raw.frontmatter,
+          // 无 frontmatter 时结束围栏根本不存在，其尾随空白只能是空串。
+          frontmatterFenceSuffix:
+            raw.frontmatter === null ? "" : raw.frontmatterFenceSuffix,
+          hasHeading: seed.hasHeading,
+          root,
+          preamble: raw.preamble,
+        };
+      }),
   );
 
-/** 前序遍历找出第一个列表项形态节点的 bullet，对齐 parser 的回填规则。 */
-function firstItemBullet(nodes: readonly MindNode[]): MindNode["bullet"] | null {
+/** 前序遍历找出第一个列表项形态节点的标记形态，对齐 parser 的回填规则。 */
+function firstItemMarker(
+  nodes: readonly MindNode[],
+): { bullet: MindNode["bullet"]; ordered?: MindNode["ordered"] } | null {
   for (const node of nodes) {
-    if (node.heading === undefined) return node.bullet;
-    const nested = firstItemBullet(node.children);
+    if (node.heading === undefined) {
+      return node.ordered === undefined
+        ? { bullet: node.bullet }
+        : { bullet: node.bullet, ordered: node.ordered };
+    }
+    const nested = firstItemMarker(node.children);
     if (nested !== null) return nested;
   }
   return null;
@@ -375,6 +444,23 @@ describe("已知归一化", () => {
   it("列表项之间有两个空行时同样被归一化为紧凑列表", () => {
     expect(serialize(parse("# t\n\n- a\n\n\n- b\n", "x.md"))).toBe(
       "# t\n\n- a\n- b\n",
+    );
+  });
+
+  it("有序列表的松散形态同样被压缩成紧凑列表", () => {
+    // 归一化第 2 条的适用面从「无序列表」扩大到「列表」：有序项成为节点之后，
+    // 两项之间的空行就没有存放的位置了。这是不可避免的，不是新增的第六条。
+    expect(serialize(parse("# t\n\n1. a\n\n2. b\n", "x.md"))).toBe(
+      "# t\n\n1. a\n2. b\n",
+    );
+  });
+
+  it("有序与无序混排、缩进宽度不一致时兜底为 2 空格", () => {
+    // `- ` 宽 2、`1. ` 宽 3，同一个块里出现两种宽度，detectIndentUnitString
+    // 归纳不出单一单位，退回两空格兜底。这落在归一化第 4 条的措辞里
+    // （「某个列表块内部混用、无法归纳出单一单位」），不是第六条。
+    expect(serialize(parse("# t\n\n- a\n  - b\n1. c\n   1. d\n", "x.md"))).toBe(
+      "# t\n\n- a\n  - b\n1. c\n  1. d\n",
     );
   });
 

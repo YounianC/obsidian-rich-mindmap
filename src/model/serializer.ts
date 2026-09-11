@@ -1,6 +1,6 @@
 import { formatMarks } from "./marks";
 import { renderNote } from "./note";
-import { isHeading, type MindDoc, type MindNode } from "./types";
+import { isHeading, isOrdered, type MindDoc, type MindNode } from "./types";
 
 /** 组合标记与文本，避免空文本时出现尾随空格。 */
 function composeLine(node: MindNode): string {
@@ -48,10 +48,15 @@ function serializeNodes(
       out += serializeNodes(node.children, 0, node.heading.indentUnit ?? indentUnit);
       continue;
     }
-    // 用节点自己的 bullet 而不是固定的 `-`：`*`/`+` 同样是合法的 CommonMark
-    // 列表标记，把它们改写成 `-` 会让一个只是被导图视图打开过的文件产生
-    // 全量 diff（见 README「写回归一化」一节的承诺）。
-    out += `${indentUnit.repeat(listDepth)}${node.bullet} ${composeLine(node)}\n`;
+    // 用节点自己的标记而不是固定的 `-`：`*`/`+` 同样是合法的 CommonMark 列表
+    // 标记，有序项的号与分隔符同理，把它们改写掉会让一个只是被导图视图打开过
+    // 的文件产生全量 diff（见 README「写回归一化」一节的承诺）。序号**不从下标
+    // 重算**，重算就是第六条未获许可的归一化——它只在 tree-ops 的结构变更里
+    // 经 renumber 改变。
+    const marker = isOrdered(node)
+      ? `${node.ordered.number}${node.ordered.delim}`
+      : node.bullet;
+    out += `${indentUnit.repeat(listDepth)}${marker} ${composeLine(node)}\n`;
     // 比节点自己深一层，备注才落在这个列表项内部而不是掉出列表。
     out += serializeNote(node, indentUnit.repeat(listDepth + 1));
     for (const line of node.continuation) out += `${line}\n`;

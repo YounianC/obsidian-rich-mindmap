@@ -14,6 +14,21 @@ export interface Marks {
 export type Bullet = "-" | "*" | "+";
 
 /**
+ * 有序列表项的标记形态。存在即为有序项，不存在即为无序项。
+ *
+ * `serialize` 直接写出 `number` 与 `delim`，**绝不从节点在兄弟里的下标重算序号**。
+ * 用户写的可能是 `1. 1. 1.`（全是 1，CommonMark 合法）、可能从 `3.` 起头、可能用
+ * `)` 分隔符；重算就等于给项目加第六条写回归一化，违反 AGENTS.md 第 2 条。
+ * 只有 `tree-ops` 的结构变更（增/删/移）才会经 `renumber` 改写 `number`。
+ */
+export interface OrderedForm {
+  /** 文件里的原始序号，1–9 位数字（CommonMark 的上限） */
+  number: number;
+  /** CommonMark 允许的两种分隔符，原样保留 */
+  delim: "." | ")";
+}
+
+/**
  * 标题节点的来源形态。
  *
  * `serialize` 只读 `prefix` / `suffix`，**绝不从 `level` 重算 `#` 的个数**。
@@ -59,10 +74,20 @@ export interface MindNode {
   collapsed: boolean;
   /** 列表项内部的续行，原样保留（不含首行） */
   continuation: string[];
-  /** 该节点在文件里用的列表标记字符，写回时原样重新写出，避免把 `* a` 改成 `- a`。
+  /** 该节点在文件里用的无序列表标记字符，写回时原样重新写出，避免把 `* a` 改成 `- a`。
+   *  **仅在 `ordered === undefined` 时被 `serialize` 读取**；有序节点上它是解析期
+   *  填入的占位值（`-`），性质与 `HeadingForm.level`「解析期用、序列化不读」相同。
    *  根节点没有列表行，它的取值只作为「新建根的直接子节点时用哪个字符」的来源，
    *  由 parser 取自文件里第一个列表项（没有列表项时为 `-`）。 */
   bullet: Bullet;
+  /** 存在即为有序列表项。标题节点不带此字段。
+   *
+   *  根节点是个例外，与 `bullet` 完全对称：它存的是「文件里第一个列表项的形态」，
+   *  供 tree-ops 给根的新直接子节点挑一个与现有兄弟一致的标记。所以
+   *  **`isOrdered(root)` 可能为真而根并不是有序列表项** —— 安全性来自 `serialize`
+   *  的结构：根节点走 `doc.root.heading.prefix` 那条独立分支写出，永远不进
+   *  `serializeNodes` 的标记分支。 */
+  ordered?: OrderedForm;
   /** 存在即为「这个节点带备注」。根节点恒无此字段：parser 不对根做 splitNote，
    *  tree-ops.setNote 对根 id 是 no-op（理由与 setMarks 相同）。 */
   note?: Note;
@@ -80,6 +105,13 @@ export function isHeading(
   node: MindNode,
 ): node is MindNode & { heading: HeadingForm } {
   return node.heading !== undefined;
+}
+
+/** 判别列表项标记形态的唯一入口。不要散落 `node.ordered !== undefined`。 */
+export function isOrdered(
+  node: MindNode,
+): node is MindNode & { ordered: OrderedForm } {
+  return node.ordered !== undefined;
 }
 
 export interface MindDoc {

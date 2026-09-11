@@ -92,10 +92,11 @@ describe("parse", () => {
     expect(doc.root.children[1].children.map((c) => c.text)).toEqual(["b"]);
   });
 
-  it("有序列表行归入上一节点的续行", () => {
+  it("有序列表行产生节点", () => {
     const doc = parse("# t\n\n- a\n1. 步骤\n", "x.md");
-    expect(doc.root.children.map((c) => c.text)).toEqual(["a"]);
-    expect(doc.root.children[0].continuation).toEqual(["1. 步骤"]);
+    expect(doc.root.children.map((c) => c.text)).toEqual(["a", "步骤"]);
+    expect(doc.root.children[1].ordered).toEqual({ number: 1, delim: "." });
+    expect(doc.root.children[0].ordered).toBeUndefined();
   });
 
   it("代码块围栏归入上一节点的续行", () => {
@@ -384,5 +385,68 @@ describe("对抗性输入", () => {
     for (const md of inputs) {
       expect(serialize(parse(md, "我的导图.md"))).toBe(md);
     }
+  });
+});
+
+describe("有序列表项的识别边界", () => {
+  it("`.` 与 `)` 两种分隔符都认", () => {
+    const doc = parse("# t\n\n1. a\n2) b\n", "x.md");
+    expect(doc.root.children.map((c) => c.ordered)).toEqual([
+      { number: 1, delim: "." },
+      { number: 2, delim: ")" },
+    ]);
+  });
+
+  it("非 1 起始与重复号都原样保留", () => {
+    const doc = parse("# t\n\n3. a\n3. b\n", "x.md");
+    expect(doc.root.children.map((c) => c.ordered?.number)).toEqual([3, 3]);
+  });
+
+  it("标记与文字之间没有空白时不是列表项", () => {
+    const doc = parse("# t\n\n- a\n1.x\n", "x.md");
+    expect(doc.root.children.map((c) => c.text)).toEqual(["a"]);
+    expect(doc.root.children[0].continuation).toEqual(["1.x"]);
+  });
+
+  it("超过 9 位数字不是列表项（CommonMark 上限）", () => {
+    const doc = parse("# t\n\n- a\n1234567890. x\n", "x.md");
+    expect(doc.root.children.map((c) => c.text)).toEqual(["a"]);
+    expect(doc.root.children[0].continuation).toEqual(["1234567890. x"]);
+  });
+
+  it("9 位数字仍是列表项", () => {
+    const doc = parse("# t\n\n123456789. x\n", "x.md");
+    expect(doc.root.children[0].ordered).toEqual({ number: 123456789, delim: "." });
+  });
+
+  it("围栏内的有序列表行不产生节点", () => {
+    const doc = parse("# t\n\n- a\n```md\n1. 假条目\n```\n", "x.md");
+    expect(doc.root.children.map((c) => c.text)).toEqual(["a"]);
+    expect(doc.root.children[0].continuation).toEqual(["```md", "1. 假条目", "```"]);
+  });
+
+  it("有序项按缩进构建层级，与无序项混排", () => {
+    const doc = parse("# t\n\n1. a\n  - b\n2. c\n", "x.md");
+    expect(doc.root.children.map((c) => c.text)).toEqual(["a", "c"]);
+    expect(doc.root.children[0].children.map((c) => c.text)).toEqual(["b"]);
+  });
+
+  it("有序项能带行内标记与备注", () => {
+    const doc = parse("# t\n\n1. (p1) a\n   > 备注\n", "x.md");
+    const a = doc.root.children[0];
+    expect(a.text).toBe("a");
+    expect(a.marks).toEqual({ priority: 1 });
+    expect(a.note?.text).toBe("备注");
+  });
+
+  it("根节点回填文件里第一个列表项的形态", () => {
+    const doc = parse("# t\n\n1) a\n", "x.md");
+    expect(doc.root.ordered).toEqual({ number: 1, delim: ")" });
+  });
+
+  it("第一个列表项是无序时根节点不带 ordered", () => {
+    const doc = parse("# t\n\n- a\n1. b\n", "x.md");
+    expect(doc.root.ordered).toBeUndefined();
+    expect(doc.root.bullet).toBe("-");
   });
 });

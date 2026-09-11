@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parse } from "../src/model/parser";
 import { serialize } from "../src/model/serializer";
+import type { MindDoc, MindNode } from "../src/model/types";
 
 describe("serialize", () => {
   it("保留文件原有的 4 空格缩进单位", () => {
@@ -63,5 +64,80 @@ describe("serialize", () => {
     // 即便未来有代码不慎往 root.marks 写入内容，H1 行也绝不能出现标记组。
     doc.root.marks = { priority: 3, progress: 50, flag: "red" };
     expect(serialize(doc)).toBe("# t\n\n- a\n");
+  });
+});
+
+/** 手搭一个最小的列表项节点，绕开 parser 直接压序列化分支。 */
+function item(text: string, extra: Partial<MindNode> = {}): MindNode {
+  return {
+    id: "n1",
+    text,
+    marks: {},
+    children: [],
+    collapsed: false,
+    continuation: [],
+    bullet: "-",
+    ...extra,
+  };
+}
+
+function docWith(children: MindNode[]): MindDoc {
+  return {
+    indentUnit: "  ",
+    frontmatter: null,
+    frontmatterFenceSuffix: "",
+    hasHeading: true,
+    root: {
+      id: "n0",
+      text: "t",
+      marks: {},
+      children,
+      collapsed: false,
+      continuation: [],
+      bullet: "-",
+      heading: { level: 1, prefix: "# ", suffix: "", indentUnit: null },
+    },
+    preamble: "",
+  };
+}
+
+describe("有序列表标记的写出", () => {
+  it("有序节点写出自己的号与分隔符", () => {
+    expect(serialize(docWith([item("a", { ordered: { number: 3, delim: "." } })]))).toBe(
+      "# t\n3. a\n",
+    );
+  });
+
+  it("`)` 分隔符原样写出", () => {
+    expect(serialize(docWith([item("a", { ordered: { number: 1, delim: ")" } })]))).toBe(
+      "# t\n1) a\n",
+    );
+  });
+
+  it("有序节点的 bullet 是死字段，不影响写出", () => {
+    const doc = docWith([item("a", { bullet: "*", ordered: { number: 7, delim: "." } })]);
+    expect(serialize(doc)).toBe("# t\n7. a\n");
+  });
+
+  it("无序节点不受影响", () => {
+    expect(serialize(docWith([item("a", { bullet: "+" })]))).toBe("# t\n+ a\n");
+  });
+
+  it("有序父节点下的子节点按 indentUnit 缩进，与标记宽度无关", () => {
+    const doc = docWith([
+      item("a", {
+        ordered: { number: 1, delim: "." },
+        children: [item("b", { ordered: { number: 1, delim: "." } })],
+      }),
+    ]);
+    expect(serialize(doc)).toBe("# t\n1. a\n  1. b\n");
+  });
+
+  it("根节点回填的 ordered 不影响它的标题行", () => {
+    // parse 会把「文件里第一个列表项的形态」回填到根上，isOrdered(root) 因此为真；
+    // 根走 heading.prefix 那条独立分支，绝不能写成 `1. t`。
+    const doc = parse("# t\n\n1) a\n", "x.md");
+    expect(doc.root.ordered).toEqual({ number: 1, delim: ")" });
+    expect(serialize(doc)).toBe("# t\n\n1) a\n");
   });
 });
