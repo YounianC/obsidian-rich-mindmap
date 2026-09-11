@@ -91,7 +91,7 @@ const zh = {
   "toolbar.addSibling.blockedRoot": "根节点没有兄弟节点",
   "toolbar.remove": "删除节点",
   "toolbar.remove.blockedHidden":
-    "该节点携带图上不可见的正文（标题下的散文、有序列表、代码块等），删除会连带丢掉这些内容",
+    "该节点携带图上不可见的正文（标题下的散文、表格、代码块等），删除会连带丢掉这些内容",
   "toolbar.remove.blockedRoot": "根节点不能删除",
   "toolbar.textStyle": "文字样式",
   "toolbar.marks": "标记",
@@ -168,7 +168,7 @@ const en: Record<MessageKey, string> = {
   "toolbar.addSibling.blockedRoot": "The root node has no siblings",
   "toolbar.remove": "Delete node",
   "toolbar.remove.blockedHidden":
-    "This node carries body text that the map does not show (prose, ordered lists and code blocks under a heading); deleting it would take that content with it",
+    "This node carries body text that the map does not show (prose, tables and code blocks under a heading); deleting it would take that content with it",
   "toolbar.remove.blockedRoot": "The root node cannot be deleted",
   "toolbar.textStyle": "Text style",
   "toolbar.marks": "Marks",

@@ -54,7 +54,9 @@ Run through it three times; the third one is the one that counts.
 
 ## Follow-up
 
-1. Ordered lists are carried along verbatim but never become nodes
+1. Ordered lists are nodes too, numbering preserved
+2. Nested ones work the same way
+  1. Including their own numbering
 
 - (p4 0%) Publish the written version
 - (p5 0%) Share slides and the demo repository
@@ -62,7 +64,7 @@ Run through it three times; the third one is the one that counts.
 ## Notes
 
 Headings and nested lists together form the hierarchy, so every `##` above is a
-node on the map. What is *not* on the map: this paragraph, the `tags` and
-`speaker` keys in the frontmatter, and the ordered list under Follow-up — all
-carried along invisibly. Open this file in mindmap view, switch back to source,
+node on the map. What is *not* on the map: this paragraph and the `tags` and
+`speaker` keys in the frontmatter — both carried along invisibly. Open this
+file in mindmap view, switch back to source,
 and it should come back byte for byte identical.

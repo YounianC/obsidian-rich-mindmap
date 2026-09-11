@@ -27,7 +27,7 @@ export interface NodeCapabilities {
   canRemove: boolean;
   canMark: boolean;
   canNote: boolean;
-  /** 该节点是否携带图上不可见的正文（标题下的散文、有序列表、代码块……）。
+  /** 该节点是否携带图上不可见的正文（标题下的散文、表格、代码块……）。
    *  它是 `canRemove` 为 false 的两个原因之一（另一个是「这是根节点」），
    *  禁用提示需要据此给出具体说明——否则同级节点一个能删一个不能，用户
    *  在图上看不出任何差别，只会觉得按钮的启用状态是任意的。 */

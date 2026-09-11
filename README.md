@@ -25,7 +25,7 @@ Editing is not unique to this plugin — several others manage it too. The mark 
 
 ## Example
 
-Copy [`examples/conference-talk.md`](examples/conference-talk.md) into your vault and open it in mindmap view. It covers: `##` / `###` sections forming the outer hierarchy, all seven priorities, all seven flag colours, progress across every stage, nested lists, wiki links, inline formatting, a parenthesized group that is *not* a mark, a collapsed heading recorded in `mindmap-collapsed`, plus frontmatter keys, a prose paragraph and an ordered list that the plugin carries along without showing. (Notes came later; neither the example file nor the screenshot above uses one yet.)
+Copy [`examples/conference-talk.md`](examples/conference-talk.md) into your vault and open it in mindmap view. It covers: `##` / `###` sections forming the outer hierarchy, all seven priorities, all seven flag colours, progress across every stage, nested lists, wiki links, inline formatting, a parenthesized group that is *not* a mark, a collapsed heading recorded in `mindmap-collapsed`, plus frontmatter keys, and a prose paragraph that the plugin carries along without showing. (Notes came later; neither the example file nor the screenshot above uses one yet.)
 
 ```markdown
 ---
@@ -84,7 +84,9 @@ Run through it three times; the third one is the one that counts.
 
 ## Follow-up
 
-1. Ordered lists are carried along verbatim but never become nodes
+1. Ordered lists are nodes too, numbering preserved
+2. Nested ones work the same way
+  1. Including their own numbering
 
 - (p4 0%) Publish the written version
 - (p5 0%) Share slides and the demo repository
@@ -92,9 +94,9 @@ Run through it three times; the third one is the one that counts.
 ## Notes
 
 Headings and nested lists together form the hierarchy, so every `##` above is a
-node on the map. What is *not* on the map: this paragraph, the `tags` and
-`speaker` keys in the frontmatter, and the ordered list under Follow-up — all
-carried along invisibly. Open this file in mindmap view, switch back to source,
+node on the map. What is *not* on the map: this paragraph and the `tags` and
+`speaker` keys in the frontmatter — both carried along invisibly. Open this
+file in mindmap view, switch back to source,
 and it should come back byte for byte identical.
 ```
 
@@ -125,11 +127,11 @@ Then copy (or symlink) `main.js`, `manifest.json` and `styles.css` into `<your v
 
 ## Data format
 
-Top-of-line ATX headings (`#` through `######`) and nested unordered lists **together** form the hierarchy — the same hierarchy model [markmap](https://markmap.js.org/) uses, so notes written for a markmap-based preview plugin open here directly.
+Top-of-line ATX headings (`#` through `######`) and nested lists (unordered `-`/`*`/`+` and ordered `1.`/`1)`) **together** form the hierarchy — the same hierarchy model [markmap](https://markmap.js.org/) uses, so notes written for a markmap-based preview plugin open here directly.
 
 - If the file's first node line is a level-1 heading, it becomes the root node. Otherwise the root node takes its text from the file name, and the first heading in the file becomes a child of it.
 - A heading of level L attaches to the nearest heading of level < L; if there is none, it attaches to the root. So `# T` followed by `### C` puts C under T (a level jump is fine), and a second `# X` in the same file attaches to the root rather than nesting.
-- Within a heading, nested unordered lists work as before: indentation depth defines the hierarchy, and the indent unit is remembered per heading.
+- Within a heading, nested lists work as before: indentation depth defines the hierarchy, and the indent unit is remembered per heading.
 
 On a heading node, `Tab` adds a **list item** child, and `Enter` adds a **sibling heading** reusing the same `#` prefix. What a heading node cannot do:
 
@@ -137,7 +139,7 @@ On a heading node, `Tab` adds a **list item** child, and `Enter` adds a **siblin
 - **It cannot be deleted while it carries content that is invisible on the map** (see the paragraph below). Deleting it would delete something you cannot see. When its only hidden content is a blank line, deletion is allowed and removes the whole section, subtree included.
 - **The root node specifically cannot carry marks**, because a file without an H1 has no line to write them to.
 
-Prose paragraphs, ordered lists, tables, code blocks and images under a heading are not shown on the map. They are carried along invisibly and replayed byte-for-byte on write-back — which is exactly why deleting a heading that carries them is refused.
+Prose paragraphs, tables, code blocks and images under a heading are not shown on the map. They are carried along invisibly and replayed byte-for-byte on write-back — which is exactly why deleting a heading that carries them is refused.
 
 ### Inline marks
 
@@ -198,12 +200,12 @@ Content outside the list block — other frontmatter keys, preamble, code blocks
 Opening a file in mindmap view and switching away can cause Obsidian to rewrite it even if you changed nothing. That rewrite may produce these five byte-level changes and **only** these five:
 
 1. A file not ending in a newline gains one.
-2. A loose list (blank lines between items) becomes compact.
+2. A loose list (blank lines between items) becomes compact. Unordered and ordered are different lists, and switching the delimiter (`1.` to `1)`) also starts a new one, so a blank line is **only** compacted when both sides belong to the same list.
 3. `CRLF` (`\r\n`) becomes `LF` (`\n`).
-4. List indentation follows whatever the file already uses — 2 spaces, 4 spaces, tabs are all preserved, **and the unit is inferred per heading**, so different sections may use different units without being rewritten. Only two cases are rewritten to 2 spaces per level: one list block mixes indentation styles internally so that no one consistent unit can be inferred; or several list blocks under the *same* heading disagree, in which case they are unified to the first unit that could be inferred.
+4. List indentation follows whatever the file already uses — 2 spaces, 4 spaces, tabs are all preserved, **and the unit is inferred per heading**, so different sections may use different units without being rewritten. Only two cases are rewritten to 2 spaces per level: one list block mixes indentation styles internally so that no one consistent unit can be inferred; or several list blocks under the *same* heading disagree, in which case they are unified to the first unit that could be inferred. `- ` is two columns wide and `1. ` is three, so mixing ordered and unordered in one block hits the first case more often.
 5. Inline marks are written in a fixed order: priority → progress → flag (`(flag:blue 60% p3)` becomes `(p3 60% flag:blue)`).
 
-Everything else is byte-for-byte stable — including `*` and `+` list markers (never converted to `-`), the `#` count and surrounding whitespace of every heading line, trailing whitespace after the frontmatter fence, and every line that is not a node line.
+Everything else is byte-for-byte stable — including `*` and `+` list markers (never converted to `-`), ordered item numbers and delimiters (never renumbered or pulled back to start at 1), the `#` count and surrounding whitespace of every heading line, trailing whitespace after the frontmatter fence, and every line that is not a node line.
 
 ### Known limits of the hierarchy parsing
 
