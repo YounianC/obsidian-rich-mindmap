@@ -290,9 +290,7 @@ GitHub Actions runs the type check, unit tests, purity check and build, and only
 
 ## Project status
 
-`0.1.1` is the version in the community plugin browser. `0.2.0` — the interface-language setting, which also raises the Obsidian requirement to 1.8.7 — is prepared in this repository but not released yet; node notes have landed in the repository too, also unreleased.
-
-- The pure-function layer (parsing, serialization, marks, notes, collapse state, tree operations, layout, camera, i18n) has 447 automated tests, including Markdown round-trip property tests and adversarial-input tests.
+- The pure-function layer (parsing, serialization, marks, notes, collapse state, tree operations, layout, camera, i18n) is covered by automated tests throughout, including Markdown round-trip property tests and adversarial-input tests.
 - The view layer (rendering, zoom/pan, keyboard, drag, toolbar, the note badge and its popovers) is verified **by hand** by design — being published does not change that. The checklist lives in [docs/MANUAL-VERIFICATION.md](docs/MANUAL-VERIFICATION.md); the "does it open, render and leave the file alone" section and all 16 🔴 high-risk items have passed, **the remaining sections have not been worked through yet**. Its appendix lists the defects found and fixed during development — that is where regressions are most likely.
 
 Because the plugin rewrites your notes, **verify write-back behaviour in a test vault or a git-tracked directory first**, and only point it at notes you care about once you are satisfied.
