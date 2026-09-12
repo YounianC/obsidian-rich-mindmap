@@ -1,7 +1,17 @@
-import { getLanguage, MarkdownView, Notice, Plugin, TFile, TFolder, type WorkspaceLeaf } from "obsidian";
+import {
+  getLanguage,
+  MarkdownView,
+  Notice,
+  Platform,
+  Plugin,
+  TFile,
+  TFolder,
+  type WorkspaceLeaf,
+} from "obsidian";
 import { setMindmapFlag } from "./model/collapse-state";
 import { resolveLocale, setLocale, t } from "./i18n";
 import { newMindmapContent, uniqueMindmapPath } from "./model/new-file";
+import { SourcePaneController } from "./source-pane";
 import {
   DEFAULT_SETTINGS,
   MindmapSettingTab,
@@ -19,8 +29,12 @@ export default class MindmapPlugin extends Plugin {
   /** 正在切换视图的文件路径，避免 file-open 事件递归。 */
   private readonly flipping = new Set<string>();
 
+  /** 源码分屏的开关。`onload` 里第一件事就赋值，早于任何可能用到它的注册。 */
+  private sourcePane!: SourcePaneController;
+
   override async onload(): Promise<void> {
     await this.loadSettings();
+    this.sourcePane = new SourcePaneController(this.app);
 
     // 语言必须在**任何**读 t() 的东西之前定下来，所以它紧跟 loadSettings()。
     // 最硬的那条是命令名：addCommand 时就求值，之后改语言只能靠 applyLanguage()
@@ -34,7 +48,7 @@ export default class MindmapPlugin extends Plugin {
       MINDMAP_VIEW_TYPE,
       // 设置以 getter 注入，不是拷一份值：用户改完设置立刻生效，视图不需要被
       // 重建，也不用像 i18n 那样再开一处模块级可变状态（见 i18n.ts 的说明）。
-      (leaf: WorkspaceLeaf) => new MindmapView(leaf, () => this.settings),
+      (leaf: WorkspaceLeaf) => new MindmapView(leaf, () => this.settings, this.sourcePane),
     );
 
     this.addSettingTab(new MindmapSettingTab(this.app, this));
@@ -137,14 +151,15 @@ export default class MindmapPlugin extends Plugin {
     }
   }
 
-  /** 两个命令的 id。removeCommand 要用，必须与 addCommand 的 id 逐字一致。 */
+  /** 三个命令的 id。removeCommand 要用，必须与 addCommand 的 id 逐字一致。 */
   private static readonly COMMAND_IDS = [
     "toggle-mindmap-view",
     "mark-as-mindmap",
+    "open-source-pane",
   ] as const;
 
   /**
-   * 注册两个命令。可重复调用——`applyLanguage()` 换语言时先移除再注册，
+   * 注册三个命令。可重复调用——`applyLanguage()` 换语言时先移除再注册，
    * 让命令面板里的名字立即变成新语言。
    */
   private registerCommands(): void {
@@ -175,6 +190,22 @@ export default class MindmapPlugin extends Plugin {
         if (file === null || file.extension !== "md") return false;
         if (checking) return true;
         void this.markAsMindmap(file);
+        return true;
+      },
+    });
+
+    this.addCommand({
+      id: "open-source-pane",
+      name: t("command.openSourcePane"),
+      checkCallback: (checking: boolean) => {
+        // 手机上左右分屏没有意义，入口整体不提供（设计文档 §5.4）。
+        if (Platform.isMobile) return false;
+        // 只认导图视图，不像 toggle-mindmap-view 那样兼顾 MarkdownView：
+        // 这条命令在源码侧没有意义。
+        const view = this.app.workspace.getActiveViewOfType(MindmapView);
+        if (view === null || view.file === null) return false;
+        if (checking) return true;
+        void this.sourcePane.toggle(view);
         return true;
       },
     });

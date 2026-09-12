@@ -1,4 +1,4 @@
-import { Notice, TextFileView, TFile, type WorkspaceLeaf } from "obsidian";
+import { Notice, Platform, TextFileView, TFile, type WorkspaceLeaf } from "obsidian";
 import {
   applyCollapsedPaths,
   collectCollapsedPaths,
@@ -32,6 +32,8 @@ import type { Marks, MindDoc, MindNode } from "./model/types";
 // `import type`：编译后被整体擦除，不会产生 view.ts → settings.ts → main.ts
 // 的运行时循环依赖（settings.ts 自己 import 了 obsidian 与 main 的类型）。
 import type { MindmapSettings } from "./settings";
+// 同上：只要类型，不在运行时 import，避免 view.ts ↔ source-pane.ts 的循环依赖。
+import type { SourcePaneController } from "./source-pane";
 import {
   actualSize,
   cssTransform,
@@ -113,12 +115,20 @@ export class MindmapView extends TextFileView {
   constructor(
     leaf: WorkspaceLeaf,
     private readonly settings: () => MindmapSettings,
+    private readonly sourcePane: SourcePaneController,
   ) {
     super(leaf);
     this.root = el("div", "mindmap-view", this.contentEl);
     // 视图标题栏右上角的动作按钮（与 Obsidian 自带视图的图标按钮同一位置）。
     // 命令面板里的「切换思维导图 / 源码视图」仍然可用，这是它的鼠标入口。
     this.addAction("file-text", t("view.switchToSource"), () => this.switchToSource());
+    // 源码分屏。`this` 满足 MindmapHost（leaf 来自 View，file 来自 FileView）。
+    // 手机上左右分屏没有意义，按钮整体不出现（设计文档 §5.4）。
+    if (!Platform.isMobile) {
+      this.addAction("panel-left", t("view.openSourcePane"), () =>
+        void this.sourcePane.toggle(this),
+      );
+    }
   }
 
   /**
