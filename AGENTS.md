@@ -194,4 +194,5 @@ npm run check:i18n    # 界面文字未写死中文
 ## 设计文档
 
 - 设计与决策记录：[docs/superpowers/specs/2026-09-03-obsidian-mindmap-design.md](docs/superpowers/specs/2026-09-03-obsidian-mindmap-design.md)，含「已知限制」一节
+- 源码 / 导图左右分屏：[docs/superpowers/specs/2026-09-12-source-split-design.md](docs/superpowers/specs/2026-09-12-source-split-design.md)，§4.1 解释了自动翻转的豁免为什么必须无状态
 - 实施计划（历史记录，写于插件定名之前，其中的插件 id 已过时）：`docs/superpowers/plans/`
