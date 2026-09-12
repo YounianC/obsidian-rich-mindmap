@@ -69,6 +69,24 @@ export default class MindmapPlugin extends Plugin {
         const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
         if (frontmatter?.mindmap !== true) return;
 
+        // 该文件已经在某个面板上以导图视图显示时，不再把显示它的 markdown
+        // 面板翻成导图——那个面板是用户特意留的源码侧（源码分屏，见
+        // docs/superpowers/specs/2026-09-12-source-split-design.md §4.1）。
+        //
+        // 这条判据刻意**不**依赖 SourcePaneController 的内存配对表：Obsidian
+        // 重启会恢复工作区布局（源码面板被恢复出来）但配对表是空的，依赖它
+        // 会让分屏在每次重启后被翻掉。无状态规则在重启后依然成立。
+        //
+        // 已知代价：同一文件想开**两个**导图面板时，第二个会停在源码模式，
+        // 需要手动切一次。这个场景罕见，换「重启后不坏」是划算的。
+        const alreadyOpenAsMindmap = this.app.workspace
+          .getLeavesOfType(MINDMAP_VIEW_TYPE)
+          .some(
+            (candidate) =>
+              candidate.view instanceof MindmapView && candidate.view.file?.path === file.path,
+          );
+        if (alreadyOpenAsMindmap) return;
+
         // file-open 事件不带 leaf，不能靠 getMostRecentLeaf() 猜：分屏/侧栏场景下
         // 它可能不是显示这个文件的面板。改为遍历所有 markdown leaf，只挑视图里
         // file.path 与打开的文件一致的那个；找不到就什么都不做。
