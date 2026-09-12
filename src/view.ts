@@ -908,6 +908,29 @@ export class MindmapView extends TextFileView {
     this.placeCamera(fit);
   }
 
+  /**
+   * 视口即将被外力改变（目前只有源码分屏的开/关），请求重新摆一次初始相机。
+   *
+   * **只置位、不立刻调用**，两条理由缺一不可：
+   * 1. 调用方（`SourcePaneController`）拿不到「DOM 宽度已经变了」这个时刻——
+   *    `createLeafBySplit()` 与 `detach()` 之后本 leaf 的尺寸不是同步更新的，
+   *    此刻 `placeCamera()` 读到的还是旧宽度，算出来照样偏。
+   * 2. 更糟的是 `placeCamera()` 成功后会把 `needsInitialCamera` 清零，于是真正
+   *    的尺寸变化到来时被 `resizeObserver` 回调首行的早退挡掉，等于白做。
+   *
+   * 交给 `resizeObserver`：它本来就是为「等视口拿到真实尺寸再补一次」而存在的
+   * （见 `needsInitialCamera` 的字段注释）。调用方必须**在**触发尺寸变化的那句
+   * 之前调本方法——ResizeObserver 的回调在帧末投递，`await openFile()` 足够长，
+   * 先分屏后置位会漏掉那一次投递。
+   *
+   * 因此本方法只能由「尺寸必然改变」的路径调用。分屏的 reveal 分支（聚焦一个
+   * 已存在的面板，导图宽度不变）刻意不调：那会让标志一直挂到用户下一次拖窗口
+   * 才突然重新居中。
+   */
+  requestRecenter(): void {
+    this.needsInitialCamera = true;
+  }
+
   /** 打开一张导图时的初始相机：按设置项 `defaultZoom` 选「适应窗口」或 100%。
    *  设置是 getter 读的，所以改完设置对之后打开的视图立刻生效。 */
   private applyInitialCamera(): void {

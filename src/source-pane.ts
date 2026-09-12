@@ -64,6 +64,8 @@ export function decidePaneAction<T>(
 export interface MindmapHost {
   readonly leaf: WorkspaceLeaf;
   readonly file: TFile | null;
+  /** 请求在视口尺寸变化后重摆初始相机。只在导图宽度**必然**改变的路径上调。 */
+  requestRecenter(): void;
 }
 
 /**
@@ -93,15 +95,20 @@ export class SourcePaneController {
     switch (action.kind) {
       case "close":
         this.pairs.delete(host.leaf);
+        // 置位必须排在 detach() 之前，见 MindmapView.requestRecenter() 的说明：
+        // ResizeObserver 的回调在帧末投递，先改布局后置位会漏掉那一次。
+        host.requestRecenter();
         action.leaf.detach();
         return;
       case "reveal":
         // 用户自己已经开着这个文件的源码面板：登记为配对并聚焦过去，
-        // 不新开第三个面板（设计文档 §5.1）。
+        // 不新开第三个面板（设计文档 §5.1）。**不** requestRecenter：
+        // 聚焦一个已存在的面板不改变导图宽度，置位会让标志一直悬挂。
         this.pairs.set(host.leaf, action.leaf);
         await this.app.workspace.revealLeaf(action.leaf);
         return;
       case "create": {
+        host.requestRecenter();
         // before = true 是必需的：workspace.getLeaf("split") 默认往右开，
         // 那会得到「左导图 / 右源码」，与需求相反（设计文档 §3.1）。
         const pane = this.app.workspace.createLeafBySplit(host.leaf, "vertical", true);
