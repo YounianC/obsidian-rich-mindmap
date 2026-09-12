@@ -114,7 +114,7 @@
 ### 10. 其他
 
 - TypeScript `strict: true`，不用 `any`（必要时 `unknown` + 类型守卫）。
-- **面向用户的字符串一律走 `t()`（`src/i18n.ts`），不写死任何语言。** 中文表是 key 的唯一来源，英文表声明为 `Record<MessageKey, string>`，漏译是编译错误。`npm run check:i18n` 扫 `src/main.ts` / `src/settings.ts` / `src/view.ts` / `src/view/**` 的字符串字面量，发现中文即失败——**注释不受约束，只有字面量受约束**。报出残留时去补 `t()`，**不要放宽扫描范围或加豁免名单**，那等于把这道门禁废掉。
+- **面向用户的字符串一律走 `t()`（`src/i18n.ts`），不写死任何语言。** 中文表是 key 的唯一来源，英文表声明为 `Record<MessageKey, string>`，漏译是编译错误。`npm run check:i18n` 扫 `src/main.ts` / `src/settings.ts` / `src/view.ts` / `src/source-pane.ts` / `src/view/**` 的字符串字面量，发现中文即失败——**注释不受约束，只有字面量受约束**。报出残留时去补 `t()`，**不要放宽扫描范围或加豁免名单**，那等于把这道门禁废掉。
 - `src/i18n.ts` 既不 `import obsidian`（`getLanguage()` 只在 `main.ts` 一处调用，结果作为参数传进 `resolveLocale`），也不放进 `src/model/`（`t()` 有模块级可变状态、不是纯函数，塞进纯函数层是在骗人）。
 - **`t()` 自己不通知任何人。** 语言变更后必须由 `main.ts` 的 `applyLanguage()` 重注册命令并让各导图视图 `refreshLocale()`。已渲染的 DOM 不会自己更新——`toolbar.ts` 的 `specs` 就是在 `createToolbar()` 函数体内求值的，不重建图层文案不会变。
 - **`setLocale()` 必须紧跟 `loadSettings()`，排在 `addSettingTab()` 与 `registerCommands()` 之前。** 命令名是 `addCommand` 时求值的，之后改语言只能靠 `applyLanguage()` 整个重注册一遍。设置页现在走 `display()`（用户点开时才求值），对顺序不敏感；但它曾经用声明式 `getSettingDefinitions()`，那时 `addSettingTab()` 会立刻调一次 `update()` 去建搜索索引，`setLocale` 排在它之后就出现过「语言那一行中文、其余行英文」的混排（已复现并修复确认）。顺序保持现状。

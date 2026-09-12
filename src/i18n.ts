@@ -28,6 +28,7 @@ const zh = {
   // 命令面板
   "command.toggleView": "切换思维导图 / 源码视图",
   "command.markAsMindmap": "标记为思维导图（写入 frontmatter）",
+  "command.openSourcePane": "并排打开源码面板",
 
   // 文件右键菜单
   "menu.newMindmap": "新建思维导图",
@@ -57,6 +58,7 @@ const zh = {
 
   // 视图
   "view.switchToSource": "切换到源码模式",
+  "view.openSourcePane": "并排打开源码",
   "view.displayTitle": "思维导图",
   "view.untitledFile": "未命名.md",
   "view.error.title": "无法解析为思维导图",
@@ -114,6 +116,7 @@ export type MessageKey = keyof typeof zh;
 const en: Record<MessageKey, string> = {
   "command.toggleView": "Toggle mindmap / source view",
   "command.markAsMindmap": "Mark as mindmap (write frontmatter)",
+  "command.openSourcePane": "Open source pane side by side",
 
   "menu.newMindmap": "New mindmap",
   "menu.openAsMindmap": "Open as mindmap",
@@ -139,6 +142,7 @@ const en: Record<MessageKey, string> = {
   "settings.defaultZoom.actual": "100% (actual size)",
 
   "view.switchToSource": "Switch to source mode",
+  "view.openSourcePane": "Open source side by side",
   "view.displayTitle": "Mindmap",
   "view.untitledFile": "Untitled.md",
   "view.error.title": "Cannot read this file as a mindmap",

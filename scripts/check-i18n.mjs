@@ -4,7 +4,7 @@ import { join } from "node:path";
 // 扫描范围：视图层与主层。src/model/** 不扫——那一层不含面向用户字符串，而它的
 // 中文注释密度最高，扫它只会制造噪音。src/i18n.ts 排除，它就是中文表所在。
 const SCAN_DIRS = ["src/view"];
-const SCAN_FILES = ["src/main.ts", "src/settings.ts", "src/view.ts"];
+const SCAN_FILES = ["src/main.ts", "src/settings.ts", "src/view.ts", "src/source-pane.ts"];
 
 const CJK = /[一-鿿]/;
 
